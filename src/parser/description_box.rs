@@ -16,16 +16,10 @@ use std::{
     str::from_utf8,
 };
 
-use nom::{
-    bytes::complete::take_until,
-    number::complete::{be_u32, be_u8},
-    Needed,
-};
-
 use crate::{
     box_type::DESCRIPTION_BOX_TYPE,
     debug::*,
-    parser::{DataBox, Error, ParseResult},
+    parser::{DataBox, Error, Source},
 };
 
 /// A JUMBF description box describes the contents of its superbox.
@@ -33,12 +27,12 @@ use crate::{
 /// This description contains a UUID and an optional text label, both
 /// of which are specific to the application that is using JUMBF.
 #[derive(Clone, Eq, PartialEq)]
-pub struct DescriptionBox<'a> {
+pub struct DescriptionBox<S: Source> {
     /// Application-specific UUID for the superbox's data type.
-    pub uuid: &'a [u8; 16],
+    pub uuid: [u8; 16],
 
     /// Application-specific label for the superbox.
-    pub label: Option<&'a str>,
+    pub label: Option<String>,
 
     /// True if the superbox containing this description box can
     /// be requested via [`SuperBox::find_by_label()`].
@@ -50,29 +44,28 @@ pub struct DescriptionBox<'a> {
     pub id: Option<u32>,
 
     /// SHA-256 hash of the superbox's data payload.
-    pub hash: Option<&'a [u8; 32]>,
+    pub hash: Option<[u8; 32]>,
 
     /// Application-specific "private" box within description box.
-    pub private: Option<DataBox<'a>>,
+    pub private: Option<DataBox<S>>,
 
     /// Original box data.
     ///
     /// This the original byte slice that was parsed to create this box.
     /// It is preserved in case a future client wishes to re-serialize this
     /// box as is.
-    pub original: &'a [u8],
+    pub original: S,
 }
 
-impl<'a> DescriptionBox<'a> {
+impl<S: Source> DescriptionBox<S> {
     /// Parse a JUMBF description box, and return a tuple of the remainder of
     /// the input and the parsed description box.
     ///
     /// The returned object uses zero-copy, and so has the same lifetime as the
     /// input.
-    pub fn from_slice(i: &'a [u8]) -> ParseResult<Self> {
-        let (i, boxx): (&'a [u8], DataBox<'a>) = DataBox::from_slice(i)?;
-        let (_, desc) = Self::from_box(boxx)?;
-        Ok((i, desc))
+    pub fn from_source(i: S) -> Result<(Self, S), Error<S::Error>> {
+        let (dbox, rem) = DataBox::from_source(i)?;
+        Ok((Self::from_data_box(dbox)?, rem))
     }
 
     /// Convert an existing JUMBF box to a JUMBF description box.
@@ -83,99 +76,100 @@ impl<'a> DescriptionBox<'a> {
     ///
     /// Returns a tuple of the remainder of the input from the box (which should
     /// typically be empty) and the new [`DescriptionBox`] object.
-    pub fn from_box(boxx: DataBox<'a>) -> ParseResult<'a, Self> {
+    pub fn from_data_box(dbox: DataBox<S>) -> Result<Self, Error<S::Error>> {
         use crate::toggles;
 
-        if boxx.tbox != DESCRIPTION_BOX_TYPE {
-            return Err(nom::Err::Error(Error::InvalidDescriptionBoxType(boxx.tbox)));
+        if dbox.tbox != DESCRIPTION_BOX_TYPE {
+            return Err(Error::InvalidDescriptionBoxType(dbox.tbox));
         }
 
-        let (i, uuid): (&'a [u8], &'a [u8; 16]) = if boxx.data.len() >= 16 {
-            let (uuid, i) = boxx.data.split_at(16);
-            let uuid = uuid[0..16]
-                .try_into()
-                .map_err(|_| nom::Err::Error(Error::Incomplete(Needed::new(16))))?;
-            (i, uuid)
-        } else {
-            return Err(nom::Err::Error(Error::Incomplete(Needed::new(16))));
-        };
+        let mut uuid = [0u8; 16];
+        let i = dbox.data.read_bytes(&mut uuid)?;
 
-        let (i, toggles) = be_u8(i)?;
+        let mut toggles = [0u8];
+        let i = i.read_bytes(&mut toggles)?;
+        let toggles = toggles[0];
 
         // Toggle bit 0 (0x01) indicates that this superbox can be requested
         // via URI requests.
         let requestable = toggles & toggles::REQUESTABLE != 0;
 
         // Toggle bit 1 (0x02) indicates that the label has an optional textual label.
-        let (i, label) = if toggles & toggles::HAS_LABEL != 0 {
-            let (i, label) = take_until("\0")(i)?;
-            let label = from_utf8(label).map_err(Error::Utf8Error)?;
-            (&i[1..], Some(label))
+        let (label, i) = if toggles & toggles::HAS_LABEL != 0 {
+            let mut i = i;
+            let mut c = [0u8];
+            let mut label: Vec<u8> = vec![];
+
+            loop {
+                i = i.read_bytes(&mut c)?;
+                let c = c[0];
+                if c == 0 {
+                    break;
+                } else {
+                    label.push(c);
+                }
+            }
+
+            let label = from_utf8(&label).map_err(Error::Utf8Error)?;
+            (Some(label.to_owned()), i)
         } else {
-            (i, None)
+            (None, i)
         };
 
         // Toggle bit 2 (0x04) indicates that the label has an optional
         // application-specific 32-bit identifier.
-        let (i, id) = if toggles & toggles::HAS_ID != 0 {
-            let (i, id) = be_u32(i)?;
-            (i, Some(id))
+        let (id, i) = if toggles & toggles::HAS_ID != 0 {
+            let (id, i) = i.read_be32()?;
+            (Some(id), i)
         } else {
-            (i, None)
+            (None, i)
         };
 
         // Toggle bit 3 (0x08) indicates that a SHA-256 hash of the superbox's
         // data box is present.
-        let (i, hash) = if toggles & toggles::HAS_HASH != 0 {
-            let (x, sig): (&'a [u8], &'a [u8; 32]) = if i.len() >= 32 {
-                let (sig, x) = i.split_at(32);
-                let sig = sig[0..32]
-                    .try_into()
-                    .map_err(|_| nom::Err::Error(Error::Incomplete(Needed::new(32))))?;
-                (x, sig)
-            } else {
-                return Err(nom::Err::Error(Error::Incomplete(Needed::new(32))));
-            };
+        let (hash, i) = if toggles & toggles::HAS_HASH != 0 {
+            let mut hash = [0u8; 32];
+            let i = i.read_bytes(&mut hash)?;
 
-            (x, Some(sig))
+            (Some(hash), i)
         } else {
-            (i, None)
+            (None, i)
         };
 
         // Toggle bit 4 (0x10) indicates that an application-specific "private"
         // box is contained within the description box.
-        let (i, private) = if toggles & toggles::HAS_PRIVATE_BOX != 0 {
-            let (i, private) = DataBox::from_slice(i)?;
-            (i, Some(private))
+        let (private, _i) = if toggles & toggles::HAS_PRIVATE_BOX != 0 {
+            let (private, i) = DataBox::from_source(i)?;
+            (Some(private), i)
         } else {
-            (i, None)
+            (None, i)
         };
 
-        Ok((
-            i,
-            Self {
-                uuid,
-                label,
-                requestable,
-                id,
-                hash,
-                private,
-                original: boxx.original,
-            },
-        ))
+        Ok(Self {
+            uuid,
+            label,
+            requestable,
+            id,
+            hash,
+            private,
+            original: dbox.original,
+        })
     }
 }
 
-impl<'a> Debug for DescriptionBox<'a> {
+impl<S: Source + Debug> Debug for DescriptionBox<S> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         f.debug_struct("DescriptionBox")
-            .field("uuid", &DebugByteSlice(self.uuid))
+            .field("uuid", &DebugByteSlice(self.uuid.as_slice()))
             .field("label", &self.label)
             .field("requestable", &self.requestable)
             .field("id", &self.id)
             .field("hash", &DebugOption32ByteSlice(&self.hash))
             .field("private", &self.private)
-            .field("original", &DebugByteSlice(self.original))
+            .field(
+                "original",
+                &DebugByteSlice(&self.original.as_bytes().unwrap_or_default()),
+            )
             .finish()
     }
 }

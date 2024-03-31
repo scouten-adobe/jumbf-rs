@@ -11,22 +11,19 @@
 // specific language governing permissions and limitations under
 // each license.
 
-//! An efficient (zero-copy) parser for [JUMBF (ISO/IEC 19566-5:2019)]
-//! data structures.
-//!
-//! [JUMBF (ISO/IEC 19566-5:2019)]: https://www.iso.org/standard/73604.html
+mod read_past_end_of_slice {
+    use crate::parser::ReadPastEndOfSlice;
 
-mod data_box;
-pub use data_box::DataBox;
+    #[test]
+    fn impl_display() {
+        let err = ReadPastEndOfSlice {
+            wanted: 27,
+            have: 24,
+        };
 
-mod description_box;
-pub use description_box::DescriptionBox;
-
-mod error;
-pub use error::Error;
-
-mod source;
-pub use source::{ReadPastEndOfSlice, Source};
-
-mod super_box;
-pub use super_box::{ChildBox, SuperBox};
+        assert_eq!(
+            err.to_string(),
+            "Read past end of slice (wanted 27 bytes, have 24 bytes)"
+        );
+    }
+}

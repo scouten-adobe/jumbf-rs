@@ -39,7 +39,7 @@ fn debug_byte_slice() {
 #[test]
 fn debug_option_32_byte_slice() {
     let h = hex!("54686973206973206120626f67757320686173682e2e2e2e2e2e2e2e2e2e2e2e");
-    let h = Some(&h);
+    let h = Some(h);
 
     let s = DebugOption32ByteSlice(&h);
     assert_eq!(format!("{s:#?}"), "Some(32 bytes starting with [54, 68, 69, 73, 20, 69, 73, 20, 61, 20, 62, 6f, 67, 75, 73, 20, 68, 61, 73, 68])");

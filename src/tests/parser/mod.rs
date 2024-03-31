@@ -13,5 +13,6 @@
 
 mod data_box;
 mod description_box;
+mod source;
 mod super_box;
 mod super_box_depth_limit;

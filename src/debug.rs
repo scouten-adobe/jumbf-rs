@@ -30,12 +30,12 @@ impl<'a> Debug for DebugByteSlice<'a> {
     }
 }
 
-pub(crate) struct DebugOption32ByteSlice<'a>(pub(crate) &'a Option<&'a [u8; 32]>);
+pub(crate) struct DebugOption32ByteSlice<'a>(pub(crate) &'a Option<[u8; 32]>);
 
 impl<'a> Debug for DebugOption32ByteSlice<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         if let Some(s) = self.0 {
-            write!(f, "Some({:#?})", &DebugByteSlice(*s as &[u8]))
+            write!(f, "Some({:#?})", &DebugByteSlice(s))
         } else {
             write!(f, "None")
         }

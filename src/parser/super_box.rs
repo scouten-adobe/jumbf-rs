@@ -16,38 +16,38 @@ use std::fmt::{Debug, Formatter};
 use crate::{
     box_type::SUPER_BOX_TYPE,
     debug::*,
-    parser::{DataBox, DescriptionBox, Error, ParseResult},
+    parser::{DataBox, DescriptionBox, Error, Source},
 };
 
 /// A JUMBF superbox contains a description box and zero or more
 /// data boxes, each of which may or may not be a superbox.
 #[derive(Clone, Eq, PartialEq)]
-pub struct SuperBox<'a> {
+pub struct SuperBox<S: Source> {
     /// Description box.
-    pub desc: DescriptionBox<'a>,
+    pub desc: DescriptionBox<S>,
 
     /// Child boxes. (These are referred to in some documentation
     /// as "data boxes.")
-    pub child_boxes: Vec<ChildBox<'a>>,
+    pub child_boxes: Vec<ChildBox<S>>,
 
     /// Original box data.
     ///
     /// This the original byte slice that was parsed to create this box.
     /// It is preserved in case a future client wishes to re-serialize this
     /// box as is.
-    pub original: &'a [u8],
+    pub original: S,
 }
 
-impl<'a> SuperBox<'a> {
-    /// Parse a byte-slice as a JUMBF superbox, and return a tuple of the
+impl<S: Source> SuperBox<S> {
+    /// Parse a source as a JUMBF superbox, and return a tuple of the
     /// remainder of the input and the parsed super box. Children of this
     /// superbox which are also superboxes will be parsed recursively without
     /// limit.
     ///
     /// The returned object uses zero-copy, and so has the same lifetime as the
     /// input.
-    pub fn from_slice(i: &'a [u8]) -> ParseResult<Self> {
-        Self::from_slice_with_depth_limit(i, usize::MAX)
+    pub fn from_source(original: S) -> Result<(Self, S), Error<S::Error>> {
+        Self::from_source_with_depth_limit(original, usize::MAX)
     }
 
     /// Parse a byte-slice as a JUMBF superbox, and return a tuple of the
@@ -60,10 +60,15 @@ impl<'a> SuperBox<'a> {
     ///
     /// The returned object uses zero-copy, and so has the same lifetime as the
     /// input.
-    pub fn from_slice_with_depth_limit(i: &'a [u8], depth_limit: usize) -> ParseResult<Self> {
-        let (i, data_box): (&'a [u8], DataBox<'a>) = DataBox::from_slice(i)?;
-        let (_, sbox) = Self::from_data_box_with_depth_limit(&data_box, depth_limit)?;
-        Ok((i, sbox))
+    pub fn from_source_with_depth_limit(
+        original: S,
+        depth_limit: usize,
+    ) -> Result<(Self, S), Error<S::Error>> {
+        let (data_box, rem) = DataBox::from_source(original)?;
+        Ok((
+            Self::from_data_box_with_depth_limit(&data_box, depth_limit)?,
+            rem,
+        ))
     }
 
     /// Re-parse a [`DataBox`] as a JUMBF superbox. Children of this
@@ -75,7 +80,7 @@ impl<'a> SuperBox<'a> {
     /// typically be empty) and the new [`SuperBox`] object.
     ///
     /// Will return an error if the box isn't of `jumb` type.
-    pub fn from_data_box(data_box: &DataBox<'a>) -> ParseResult<'a, Self> {
+    pub fn from_data_box(data_box: &DataBox<S>) -> Result<Self, Error<S::Error>> {
         Self::from_data_box_with_depth_limit(data_box, usize::MAX)
     }
 
@@ -91,36 +96,35 @@ impl<'a> SuperBox<'a> {
     ///
     /// Will return an error if the box isn't of `jumb` type.
     pub fn from_data_box_with_depth_limit(
-        data_box: &DataBox<'a>,
+        data_box: &DataBox<S>,
         depth_limit: usize,
-    ) -> ParseResult<'a, Self> {
+    ) -> Result<Self, Error<S::Error>> {
         if data_box.tbox != SUPER_BOX_TYPE {
-            return Err(nom::Err::Error(Error::InvalidSuperBoxType(data_box.tbox)));
+            return Err(Error::InvalidSuperBoxType(data_box.tbox));
         }
 
-        let (i, desc) = DescriptionBox::from_slice(data_box.data)?;
+        let (i, _) = data_box.data.split_at(data_box.data.len())?;
+        let (desc, i) = DescriptionBox::from_source(i)?;
 
-        let (i, child_boxes) = boxes_from_slice(i)?;
+        let (child_boxes, _) = boxes_from_source(i)?;
         let child_boxes = child_boxes
             .into_iter()
             .map(|d| {
                 if d.tbox == SUPER_BOX_TYPE && depth_limit > 0 {
-                    let (_, sbox) = Self::from_data_box_with_depth_limit(&d, depth_limit - 1)?;
+                    let sbox = Self::from_data_box_with_depth_limit(&d, depth_limit - 1)?;
                     Ok(ChildBox::SuperBox(sbox))
                 } else {
                     Ok(ChildBox::DataBox(d))
                 }
             })
-            .collect::<Result<Vec<ChildBox<'a>>, Error>>()?;
+            .collect::<Result<Vec<ChildBox<S>>, Error<S::Error>>>()?;
 
-        Ok((
-            i,
-            Self {
-                desc,
-                child_boxes,
-                original: data_box.original,
-            },
-        ))
+        let (original, _) = data_box.original.split_at(data_box.original.len())?;
+        Ok(Self {
+            desc,
+            child_boxes,
+            original,
+        })
     }
 
     /// Find a child superbox of this superbox by label and verify that
@@ -138,12 +142,12 @@ impl<'a> SuperBox<'a> {
             None => (label, None),
         };
 
-        let matching_children: Vec<&SuperBox> = self
+        let matching_children: Vec<&SuperBox<S>> = self
             .child_boxes
             .iter()
             .filter_map(|child_box| match child_box {
                 ChildBox::SuperBox(sbox) => {
-                    if let Some(sbox_label) = sbox.desc.label {
+                    if let Some(sbox_label) = sbox.desc.label.as_ref() {
                         if sbox_label == label && sbox.desc.requestable {
                             Some(sbox)
                         } else {
@@ -177,7 +181,7 @@ impl<'a> SuperBox<'a> {
     ///
     /// This is a convenience function for the common case where the superbox
     /// contains a non-superbox payload that needs to be interpreted further.
-    pub fn data_box(&'a self) -> Option<&'a DataBox<'a>> {
+    pub fn data_box(&self) -> Option<&DataBox<S>> {
         self.child_boxes
             .first()
             .and_then(|child_box| match child_box {
@@ -187,28 +191,31 @@ impl<'a> SuperBox<'a> {
     }
 }
 
-impl<'a> Debug for SuperBox<'a> {
+impl<S: Source + Debug> Debug for SuperBox<S> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         f.debug_struct("SuperBox")
             .field("desc", &self.desc)
             .field("child_boxes", &self.child_boxes)
-            .field("original", &DebugByteSlice(self.original))
+            .field(
+                "original",
+                &DebugByteSlice(&self.original.as_bytes().unwrap_or_default()),
+            )
             .finish()
     }
 }
 
-// Parse boxes from slice until slice is empty.
-fn boxes_from_slice(i: &[u8]) -> ParseResult<Vec<DataBox<'_>>> {
-    let mut result: Vec<DataBox> = vec![];
+// Parse boxes from slice until source is empty.
+fn boxes_from_source<S: Source>(i: S) -> Result<(Vec<DataBox<S>>, S), Error<S::Error>> {
+    let mut result: Vec<DataBox<S>> = vec![];
     let mut i = i;
 
-    while !i.is_empty() {
-        let (x, data_box) = DataBox::from_slice(i)?;
+    while i.len() > 0 {
+        let (dbox, x) = DataBox::from_source(i)?;
         i = x;
-        result.push(data_box);
+        result.push(dbox);
     }
 
-    Ok((i, result))
+    Ok((result, i))
 }
 
 /// This type represents a single box within a superbox,
@@ -218,18 +225,18 @@ fn boxes_from_slice(i: &[u8]) -> ParseResult<Vec<DataBox<'_>>> {
 /// meaning to any type of box other than superbox (`jumb`) or
 /// description box (`jumd`).
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ChildBox<'a> {
+pub enum ChildBox<S: Source> {
     /// A superbox.
-    SuperBox(SuperBox<'a>),
+    SuperBox(SuperBox<S>),
 
     /// Any other kind of box.
-    DataBox(DataBox<'a>),
+    DataBox(DataBox<S>),
 }
 
-impl<'a> ChildBox<'a> {
+impl<S: Source> ChildBox<S> {
     /// If this represents a nested super box, return a reference to that
     /// superbox.
-    pub fn as_super_box(&'a self) -> Option<&'a SuperBox<'a>> {
+    pub fn as_super_box(&self) -> Option<&SuperBox<S>> {
         if let Self::SuperBox(sb) = self {
             Some(sb)
         } else {
@@ -239,7 +246,7 @@ impl<'a> ChildBox<'a> {
 
     /// If this represents a nested data box, return a reference to that data
     /// box.
-    pub fn as_data_box(&'a self) -> Option<&'a DataBox<'a>> {
+    pub fn as_data_box(&self) -> Option<&DataBox<S>> {
         if let Self::DataBox(db) = self {
             Some(db)
         } else {
