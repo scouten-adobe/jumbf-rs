@@ -270,7 +270,7 @@ jobs:
       - name: Run the benchmarks
         uses: CodSpeedHQ/action@v2
         with:
-          run: cargo codspeed run
+          run: cargo codspeed run --profile-time=30
           token: ${{ secrets.CODSPEED_TOKEN }}
 
   version_bump:
