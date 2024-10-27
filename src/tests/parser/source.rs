@@ -11,21 +11,19 @@
 // specific language governing permissions and limitations under
 // each license.
 
-#![deny(clippy::expect_used)]
-#![deny(clippy::panic)]
-#![deny(clippy::unwrap_used)]
-#![deny(warnings)]
-// #![doc = include_str!("../README.md")]
+mod read_past_end_of_slice {
+    use crate::parser::ReadPastEndOfSlice;
 
-#[cfg(test)]
-mod tests;
+    #[test]
+    fn impl_display() {
+        let err = ReadPastEndOfSlice {
+            wanted: 27,
+            have: 24,
+        };
 
-mod box_type;
-pub use box_type::BoxType;
-
-// pub mod builder;
-mod debug;
-
-pub mod parser;
-
-mod toggles;
+        assert_eq!(
+            err.to_string(),
+            "Read past end of slice (wanted 27 bytes, have 24 bytes)"
+        );
+    }
+}

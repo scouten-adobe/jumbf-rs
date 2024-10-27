@@ -13,14 +13,9 @@
 
 use std::fmt::{Debug, Formatter};
 
-use nom::{
-    number::complete::{be_u32, be_u64},
-    Needed,
-};
-
 use crate::{
     debug::*,
-    parser::{Error, ParseResult, SuperBox},
+    parser::{Error, Source, SuperBox},
     BoxType,
 };
 
@@ -34,7 +29,7 @@ use crate::{
 /// of any size. The contents of the payload will vary depending on the
 /// data type.
 #[derive(Clone, Eq, PartialEq)]
-pub struct DataBox<'a> {
+pub struct DataBox<S: Source> {
     /// Box type.
     ///
     /// This field specifies the type of information found in the `data`
@@ -53,61 +48,54 @@ pub struct DataBox<'a> {
     /// This field contains the actual information contained within this box.
     /// The format of the box contents depends on the box type and will be
     /// defined individually for each type.
-    pub data: &'a [u8],
+    pub data: S,
 
     /// Original box data.
     ///
     /// This the original byte slice that was parsed to create this box.
     /// It is preserved in case a future client wishes to re-serialize this
     /// box as is.
-    pub original: &'a [u8],
+    pub original: S,
 }
 
-impl<'a> DataBox<'a> {
+impl<S: Source> DataBox<S> {
     /// Parse a JUMBF box, and return a tuple of the remainder of the input and
     /// the parsed box.
-    ///
-    /// The returned object uses zero-copy, and so has the same lifetime as the
-    /// input.
-    pub fn from_slice(original: &'a [u8]) -> ParseResult<'a, Self> {
-        let (i, len) = be_u32(original)?;
+    pub fn from_source(original: S) -> Result<(Self, S), Error<S::Error>> {
+        let (len, i) = original.read_be32()?;
 
-        let (i, tbox): (&'a [u8], BoxType) = if i.len() >= 4 {
-            let (tbox, i) = i.split_at(4);
-            (i, tbox.into())
-        } else {
-            return Err(nom::Err::Error(Error::Incomplete(Needed::new(4))));
-        };
+        let mut tbox = [0u8; 4];
+        let i = i.read_bytes(&mut tbox)?;
+        let tbox: BoxType = tbox.as_slice().into();
 
-        let (i, len, original_len) = match len {
-            0 => (i, i.len(), original.len()),
+        let (len, i) = match len {
+            0 => (i.len(), i),
             1 => {
-                let (i, len) = be_u64(i)?;
+                let (len, i) = i.read_be64()?;
                 if len >= 16 {
-                    (i, len as usize - 16, len as usize)
+                    (len as usize - 16, i)
                 } else {
-                    return Err(nom::Err::Error(Error::InvalidBoxLength(len as u32)));
+                    return Err(Error::InvalidBoxLength(len as u32));
                 }
             }
             2..=7 => {
-                return Err(nom::Err::Error(Error::InvalidBoxLength(len)));
+                return Err(Error::InvalidBoxLength(len));
             }
-            len => (i, len as usize - 8, len as usize),
+            len => (len as usize - 8, i),
         };
 
-        if i.len() >= len {
-            let (data, i) = i.split_at(len);
-            Ok((
-                i,
-                Self {
-                    tbox,
-                    data,
-                    original: &original[0..original_len],
-                },
-            ))
-        } else {
-            Err(nom::Err::Error(Error::Incomplete(Needed::new(len))))
-        }
+        let (data, i) = i.split_at(len)?;
+
+        let (original, i) = original.split_at(original.len() - i.len())?;
+
+        Ok((
+            Self {
+                tbox,
+                data,
+                original,
+            },
+            i,
+        ))
     }
 
     /// Returns the offset of the *data* portion of this box within its
@@ -132,38 +120,32 @@ impl<'a> DataBox<'a> {
     ///         // ----
     ///         "00000047" // box size
     ///         "75756964" // box type = 'uuid'
-    ///         "6332637300110010800000aa00389b717468697320776f756c64206e6f726d616c6c792062652062696e617279207369676e617475726520646174612e2e2e" // data (type unknown)
+    ///         "6332637300110010800000aa00389b717468697320776f756c64206e6f726d616c6c792062652062696e617279207369676e617475726520646174612e2e2e"    // data (type unknown)
     ///     );
     ///
-    /// let (rem, sbox) = SuperBox::from_slice(&jumbf).unwrap();
+    /// let (sbox, rem) = SuperBox::from_source(jumbf.as_slice()).unwrap();
     /// assert!(rem.is_empty());
     ///
     /// let uuid_box = sbox.data_box().unwrap();
     /// assert_eq!(uuid_box.offset_within_superbox(&sbox), Some(56));
     /// ```
-    pub fn offset_within_superbox(&self, super_box: &SuperBox) -> Option<usize> {
-        let sbox_as_ptr = super_box.original.as_ptr() as usize;
-        let self_as_ptr = self.data.as_ptr() as usize;
-
-        if self_as_ptr < sbox_as_ptr {
-            return None;
-        }
-
-        let offset = self_as_ptr.wrapping_sub(sbox_as_ptr);
-        if offset + self.data.len() > super_box.original.len() {
-            None
-        } else {
-            Some(offset)
-        }
+    pub fn offset_within_superbox(&self, super_box: &SuperBox<S>) -> Option<usize> {
+        super_box.original.offset_of_subsource(&self.data)
     }
 }
 
-impl<'a> Debug for DataBox<'a> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+impl<S: Source + Debug> Debug for DataBox<S> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
         f.debug_struct("DataBox")
             .field("tbox", &self.tbox)
-            .field("data", &DebugByteSlice(self.data))
-            .field("original", &DebugByteSlice(self.original))
+            .field(
+                "data",
+                &DebugByteSlice(&self.data.as_bytes().unwrap_or_default()),
+            )
+            .field(
+                "original",
+                &DebugByteSlice(&self.original.as_bytes().unwrap_or_default()),
+            )
             .finish()
     }
 }

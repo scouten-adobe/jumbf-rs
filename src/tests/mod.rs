@@ -19,10 +19,7 @@
 #![allow(clippy::unwrap_used)]
 
 mod box_type;
-mod builder;
-
-#[cfg(feature = "parser")]
+// mod builder;
 mod debug;
 
-#[cfg(feature = "parser")]
 mod parser;

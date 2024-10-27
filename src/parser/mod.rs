@@ -17,11 +17,16 @@
 //! [JUMBF (ISO/IEC 19566-5:2019)]: https://www.iso.org/standard/73604.html
 
 mod data_box;
-mod description_box;
-mod error;
-mod super_box;
-
 pub use data_box::DataBox;
+
+mod description_box;
 pub use description_box::DescriptionBox;
-pub use error::{Error, ParseResult};
+
+mod error;
+pub use error::Error;
+
+mod source;
+pub use source::{ReadPastEndOfSlice, Source};
+
+mod super_box;
 pub use super_box::{ChildBox, SuperBox};

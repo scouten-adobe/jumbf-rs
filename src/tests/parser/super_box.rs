@@ -19,6 +19,8 @@ use crate::{
     BoxType,
 };
 
+type TDataBox<'a> = DataBox<&'a [u8]>;
+
 #[test]
 fn simple_super_box() {
     let jumbf = hex!(
@@ -31,15 +33,15 @@ fn simple_super_box() {
             "746573742e7375706572626f7800" // label
     );
 
-    let (rem, sbox) = SuperBox::from_slice(&jumbf).unwrap();
+    let (sbox, rem) = SuperBox::from_source(jumbf.as_slice()).unwrap();
     assert!(rem.is_empty());
 
     assert_eq!(
         sbox,
         SuperBox {
             desc: DescriptionBox {
-                uuid: &[0; 16],
-                label: Some("test.superbox"),
+                uuid: [0; 16],
+                label: Some("test.superbox".to_owned()),
                 requestable: true,
                 id: None,
                 hash: None,
@@ -74,15 +76,15 @@ fn nested_super_boxes() {
                 "746573742e64617461626f7800"
     );
 
-    let (rem, sbox) = SuperBox::from_slice(&jumbf).unwrap();
+    let (sbox, rem) = SuperBox::from_source(jumbf.as_slice()).unwrap();
     assert!(rem.is_empty());
 
     assert_eq!(
         sbox,
         SuperBox {
             desc: DescriptionBox {
-                uuid: &[0; 16],
-                label: Some("test.superbox_databox"),
+                uuid: [0; 16],
+                label: Some("test.superbox_databox".to_owned()),
                 requestable: true,
                 id: None,
                 hash: None,
@@ -91,8 +93,8 @@ fn nested_super_boxes() {
             },
             child_boxes: vec!(ChildBox::SuperBox(SuperBox {
                 desc: DescriptionBox {
-                    uuid: &[0; 16],
-                    label: Some("test.databox"),
+                    uuid: [0; 16],
+                    label: Some("test.databox".to_owned()),
                     requestable: true,
                     id: None,
                     hash: None,
@@ -123,15 +125,15 @@ fn data_box_sample() {
         "6332637300110010800000aa00389b717468697320776f756c64206e6f726d616c6c792062652062696e617279207369676e617475726520646174612e2e2e" // data (type unknown)
     );
 
-    let (rem, sbox) = SuperBox::from_slice(&jumbf).unwrap();
+    let (sbox, rem) = SuperBox::from_source(jumbf.as_slice()).unwrap();
     assert!(rem.is_empty());
 
     assert_eq!(
         sbox,
         SuperBox {
             desc: DescriptionBox {
-                uuid: &[99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
-                label: Some("c2pa.signature"),
+                uuid: [99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                label: Some("c2pa.signature".to_owned()),
                 requestable: true,
                 id: None,
                 hash: None,
@@ -238,15 +240,15 @@ fn complex_example() {
                     "676e617475726520646174612e2e2e"
     );
 
-    let (rem, sbox) = SuperBox::from_slice(&jumbf).unwrap();
+    let (sbox, rem) = SuperBox::from_source(jumbf.as_slice()).unwrap();
     assert!(rem.is_empty());
 
     assert_eq!(
         sbox,
         SuperBox {
             desc: DescriptionBox {
-                uuid: &[99, 50, 112, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
-                label: Some("c2pa"),
+                uuid: [99, 50, 112, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                label: Some("c2pa".to_owned()),
                 requestable: true,
                 id: None,
                 hash: None,
@@ -255,8 +257,8 @@ fn complex_example() {
             },
             child_boxes: vec!(ChildBox::SuperBox(SuperBox {
                 desc: DescriptionBox {
-                    uuid: &[99, 50, 109, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
-                    label: Some("cb.adobe_1"),
+                    uuid: [99, 50, 109, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                    label: Some("cb.adobe_1".to_owned()),
                     requestable: true,
                     id: None,
                     hash: None,
@@ -266,10 +268,8 @@ fn complex_example() {
                 child_boxes: vec!(
                     ChildBox::SuperBox(SuperBox {
                         desc: DescriptionBox {
-                            uuid: &[
-                                99, 50, 97, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,
-                            ],
-                            label: Some("c2pa.assertions",),
+                            uuid: [99, 50, 97, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                            label: Some("c2pa.assertions".to_owned()),
                             requestable: true,
                             id: None,
                             hash: None,
@@ -278,11 +278,11 @@ fn complex_example() {
                         },
                         child_boxes: vec![ChildBox::SuperBox(SuperBox {
                             desc: DescriptionBox {
-                                uuid: &[
+                                uuid: [
                                     106, 115, 111, 110, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155,
                                     113,
                                 ],
-                                label: Some("c2pa.location.broad",),
+                                label: Some("c2pa.location.broad".to_owned()),
                                 requestable: true,
                                 id: None,
                                 hash: None,
@@ -304,10 +304,8 @@ fn complex_example() {
                     },),
                     ChildBox::SuperBox(SuperBox {
                         desc: DescriptionBox {
-                            uuid: &[
-                                99, 50, 99, 108, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,
-                            ],
-                            label: Some("c2pa.claim",),
+                            uuid: [99, 50, 99, 108, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                            label: Some("c2pa.claim".to_owned()),
                             requestable: true,
                             id: None,
                             hash: None,
@@ -339,10 +337,8 @@ fn complex_example() {
                     },),
                     ChildBox::SuperBox(SuperBox {
                         desc: DescriptionBox {
-                            uuid: &[
-                                99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,
-                            ],
-                            label: Some("c2pa.signature",),
+                            uuid: [99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                            label: Some("c2pa.signature".to_owned()),
                             requestable: true,
                             id: None,
                             hash: None,
@@ -373,8 +369,8 @@ fn complex_example() {
         sbox.find_by_label("cb.adobe_1/c2pa.signature"),
         Some(&SuperBox {
             desc: DescriptionBox {
-                uuid: &[99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
-                label: Some("c2pa.signature",),
+                uuid: [99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                label: Some("c2pa.signature".to_owned()),
                 requestable: true,
                 id: None,
                 hash: None,
@@ -402,7 +398,7 @@ fn complex_example() {
     assert_eq!(
         sbox.find_by_label("cb.adobe_1/c2pa.signature")
             .and_then(|sig| sig.data_box()),
-        Some(&DataBox {
+        Some(&TDataBox {
             tbox: BoxType(*b"uuid"),
             data: &[
                 99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113, 116, 104, 105, 115,
@@ -436,8 +432,8 @@ fn error_wrong_box_type() {
     );
 
     assert_eq!(
-        SuperBox::from_slice(&jumbf).unwrap_err(),
-        nom::Err::Error(Error::InvalidSuperBoxType(BoxType(*b"jumc")))
+        SuperBox::from_source(jumbf.as_slice()).unwrap_err(),
+        Error::InvalidSuperBoxType(BoxType(*b"jumc"))
     );
 }
 
@@ -469,15 +465,15 @@ fn find_by_label_avoids_confict() {
                 "746573742e64617461626f7800" // label = "test.databox"
     );
 
-    let (rem, sbox) = SuperBox::from_slice(&jumbf).unwrap();
+    let (sbox, rem) = SuperBox::from_source(jumbf.as_slice()).unwrap();
     assert!(rem.is_empty());
 
     assert_eq!(
         sbox,
         SuperBox {
             desc: DescriptionBox {
-                uuid: &[0; 16],
-                label: Some("test.superbox_databox"),
+                uuid: [0; 16],
+                label: Some("test.superbox_databox".to_owned()),
                 requestable: true,
                 id: None,
                 hash: None,
@@ -487,8 +483,8 @@ fn find_by_label_avoids_confict() {
             child_boxes: vec!(
                 ChildBox::SuperBox(SuperBox {
                     desc: DescriptionBox {
-                        uuid: &[0; 16],
-                        label: Some("test.databox"),
+                        uuid: [0; 16],
+                        label: Some("test.databox".to_owned()),
                         requestable: true,
                         id: None,
                         hash: None,
@@ -500,8 +496,8 @@ fn find_by_label_avoids_confict() {
                 }),
                 ChildBox::SuperBox(SuperBox {
                     desc: DescriptionBox {
-                        uuid: &[0; 16],
-                        label: Some("test.databox"),
+                        uuid: [0; 16],
+                        label: Some("test.databox".to_owned()),
                         requestable: true,
                         id: None,
                         hash: None,
@@ -547,15 +543,15 @@ fn find_by_label_skips_non_requestable_boxes() {
                 "746573742e64617461626f7a00" // label = "test.databoz"
     );
 
-    let (rem, sbox) = SuperBox::from_slice(&jumbf).unwrap();
+    let (sbox, rem) = SuperBox::from_source(jumbf.as_slice()).unwrap();
     assert!(rem.is_empty());
 
     assert_eq!(
         sbox,
         SuperBox {
             desc: DescriptionBox {
-                uuid: &[0; 16],
-                label: Some("test.superbox_databox"),
+                uuid: [0; 16],
+                label: Some("test.superbox_databox".to_owned()),
                 requestable: true,
                 id: None,
                 hash: None,
@@ -565,8 +561,8 @@ fn find_by_label_skips_non_requestable_boxes() {
             child_boxes: vec!(
                 ChildBox::SuperBox(SuperBox {
                     desc: DescriptionBox {
-                        uuid: &[0; 16],
-                        label: Some("test.databox"),
+                        uuid: [0; 16],
+                        label: Some("test.databox".to_owned()),
                         requestable: false,
                         id: None,
                         hash: None,
@@ -578,8 +574,8 @@ fn find_by_label_skips_non_requestable_boxes() {
                 }),
                 ChildBox::SuperBox(SuperBox {
                     desc: DescriptionBox {
-                        uuid: &[0; 16],
-                        label: Some("test.databoz"),
+                        uuid: [0; 16],
+                        label: Some("test.databoz".to_owned()),
                         requestable: true,
                         id: None,
                         hash: None,
@@ -600,8 +596,8 @@ fn find_by_label_skips_non_requestable_boxes() {
         sbox.find_by_label("test.databoz"),
         Some(&SuperBox {
             desc: DescriptionBox {
-                uuid: &[0; 16],
-                label: Some("test.databoz"),
+                uuid: [0; 16],
+                label: Some("test.databoz".to_owned()),
                 requestable: true,
                 id: None,
                 hash: None,
@@ -618,15 +614,15 @@ fn find_by_label_skips_non_requestable_boxes() {
 fn parse_c2pa_manifest() {
     let jumbf = include_bytes!("../fixtures/C.c2pa");
 
-    let (rem, sbox) = SuperBox::from_slice(jumbf).unwrap();
+    let (sbox, rem) = SuperBox::from_source(jumbf.as_slice()).unwrap();
     assert!(rem.is_empty());
 
     assert_eq!(
         sbox,
         SuperBox {
             desc: DescriptionBox {
-                uuid: &hex!("63 32 70 61 00 11 00 10 80 00 00 aa 00 38 9b 71"),
-                label: Some("c2pa",),
+                uuid: hex!("63 32 70 61 00 11 00 10 80 00 00 aa 00 38 9b 71"),
+                label: Some("c2pa".to_owned()),
                 requestable: true,
                 id: None,
                 hash: None,
@@ -635,8 +631,10 @@ fn parse_c2pa_manifest() {
             },
             child_boxes: vec![ChildBox::SuperBox(SuperBox {
                 desc: DescriptionBox {
-                    uuid: &hex!("63 32 6d 61 00 11 00 10 80 00 00 aa 00 38 9b 71"),
-                    label: Some("contentauth:urn:uuid:021b555e-5e02-4074-b444-43d7919d89b9",),
+                    uuid: hex!("63 32 6d 61 00 11 00 10 80 00 00 aa 00 38 9b 71"),
+                    label: Some(
+                        "contentauth:urn:uuid:021b555e-5e02-4074-b444-43d7919d89b9".to_owned()
+                    ),
                     requestable: true,
                     id: None,
                     hash: None,
@@ -646,8 +644,8 @@ fn parse_c2pa_manifest() {
                 child_boxes: vec![
                     ChildBox::SuperBox(SuperBox {
                         desc: DescriptionBox {
-                            uuid: &hex!("63 32 61 73 00 11 00 10 80 00 00 aa 00 38 9b 71"),
-                            label: Some("c2pa.assertions",),
+                            uuid: hex!("63 32 61 73 00 11 00 10 80 00 00 aa 00 38 9b 71"),
+                            label: Some("c2pa.assertions".to_owned()),
                             requestable: true,
                             id: None,
                             hash: None,
@@ -657,8 +655,8 @@ fn parse_c2pa_manifest() {
                         child_boxes: vec![
                             ChildBox::SuperBox(SuperBox {
                                 desc: DescriptionBox {
-                                    uuid: &hex!("40 cb 0c 32 bb 8a 48 9d a7 0b 2a d6 f4 7f 43 69"),
-                                    label: Some("c2pa.thumbnail.claim.jpeg",),
+                                    uuid: hex!("40 cb 0c 32 bb 8a 48 9d a7 0b 2a d6 f4 7f 43 69"),
+                                    label: Some("c2pa.thumbnail.claim.jpeg".to_owned()),
                                     requestable: true,
                                     id: None,
                                     hash: None,
@@ -681,8 +679,8 @@ fn parse_c2pa_manifest() {
                             },),
                             ChildBox::SuperBox(SuperBox {
                                 desc: DescriptionBox {
-                                    uuid: &hex!("6a 73 6f 6e 00 11 00 10 80 00 00 aa 00 38 9b 71"),
-                                    label: Some("stds.schema-org.CreativeWork",),
+                                    uuid: hex!("6a 73 6f 6e 00 11 00 10 80 00 00 aa 00 38 9b 71"),
+                                    label: Some("stds.schema-org.CreativeWork".to_owned()),
                                     requestable: true,
                                     id: None,
                                     hash: None,
@@ -702,8 +700,8 @@ fn parse_c2pa_manifest() {
                             },),
                             ChildBox::SuperBox(SuperBox {
                                 desc: DescriptionBox {
-                                    uuid: &hex!("63 62 6f 72 00 11 00 10 80 00 00 aa 00 38 9b 71"),
-                                    label: Some("c2pa.actions",),
+                                    uuid: hex!("63 62 6f 72 00 11 00 10 80 00 00 aa 00 38 9b 71"),
+                                    label: Some("c2pa.actions".to_owned()),
                                     requestable: true,
                                     id: None,
                                     hash: None,
@@ -719,8 +717,8 @@ fn parse_c2pa_manifest() {
                             },),
                             ChildBox::SuperBox(SuperBox {
                                 desc: DescriptionBox {
-                                    uuid: &hex!("63 62 6f 72 00 11 00 10 80 00 00 aa 00 38 9b 71"),
-                                    label: Some("c2pa.hash.data",),
+                                    uuid: hex!("63 62 6f 72 00 11 00 10 80 00 00 aa 00 38 9b 71"),
+                                    label: Some("c2pa.hash.data".to_owned()),
                                     requestable: true,
                                     id: None,
                                     hash: None,
@@ -739,8 +737,8 @@ fn parse_c2pa_manifest() {
                     },),
                     ChildBox::SuperBox(SuperBox {
                         desc: DescriptionBox {
-                            uuid: &hex!("63 32 63 6c 00 11 00 10 80 00 00 aa 00 38 9b 71"),
-                            label: Some("c2pa.claim",),
+                            uuid: hex!("63 32 63 6c 00 11 00 10 80 00 00 aa 00 38 9b 71"),
+                            label: Some("c2pa.claim".to_owned()),
                             requestable: true,
                             id: None,
                             hash: None,
@@ -756,8 +754,8 @@ fn parse_c2pa_manifest() {
                     },),
                     ChildBox::SuperBox(SuperBox {
                         desc: DescriptionBox {
-                            uuid: &hex!("63 32 63 73 00 11 00 10 80 00 00 aa 00 38 9b 71"),
-                            label: Some("c2pa.signature",),
+                            uuid: hex!("63 32 63 73 00 11 00 10 80 00 00 aa 00 38 9b 71"),
+                            label: Some("c2pa.signature".to_owned()),
                             requestable: true,
                             id: None,
                             hash: None,

@@ -12,13 +12,14 @@
 // each license.
 
 use hex_literal::hex;
-use nom::{error::ErrorKind, Needed};
 use pretty_assertions_sorted::assert_eq;
 
 use crate::{
     box_type::DESCRIPTION_BOX_TYPE,
-    parser::{DataBox, Error},
+    parser::{DataBox, Error, ReadPastEndOfSlice},
 };
+
+type TDataBox<'a> = DataBox<&'a [u8]>;
 
 #[test]
 fn simple_box() {
@@ -30,12 +31,12 @@ fn simple_box() {
         "746573742e64657363626f7800" // label
     );
 
-    let (rem, boxx) = DataBox::from_slice(&jumbf).unwrap();
+    let (dbox, rem) = DataBox::from_source(jumbf.as_slice()).unwrap();
     assert!(rem.is_empty());
 
     assert_eq!(
-        boxx,
-        DataBox {
+        dbox,
+        TDataBox {
             tbox: DESCRIPTION_BOX_TYPE,
             data: &[
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 116, 101, 115, 116, 46, 100,
@@ -45,7 +46,7 @@ fn simple_box() {
         }
     );
 
-    assert_eq!(format!("{boxx:#?}"), "DataBox {\n    tbox: b\"jumd\",\n    data: 30 bytes starting with [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 03, 74, 65, 73],\n    original: 38 bytes starting with [00, 00, 00, 26, 6a, 75, 6d, 64, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00],\n}");
+    assert_eq!(format!("{dbox:#?}"), "DataBox {\n    tbox: b\"jumd\",\n    data: 30 bytes starting with [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 03, 74, 65, 73],\n    original: 38 bytes starting with [00, 00, 00, 26, 6a, 75, 6d, 64, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00],\n}");
 }
 
 #[test]
@@ -55,8 +56,10 @@ fn error_incomplete_box_length() {
     );
 
     assert_eq!(
-        DataBox::from_slice(&jumbf).unwrap_err(),
-        nom::Err::Error(Error::NomError(ErrorKind::Eof))
+        DataBox::from_source(jumbf.as_slice()).unwrap_err(),
+        Error::SourceError {
+            source: ReadPastEndOfSlice { wanted: 4, have: 3 }
+        }
     );
 }
 
@@ -68,8 +71,10 @@ fn error_incomplete_box_type() {
     );
 
     assert_eq!(
-        DataBox::from_slice(&jumbf).unwrap_err(),
-        nom::Err::Error(Error::Incomplete(Needed::new(4)))
+        DataBox::from_source(jumbf.as_slice()).unwrap_err(),
+        Error::SourceError {
+            source: ReadPastEndOfSlice { wanted: 4, have: 3 }
+        }
     );
 }
 
@@ -81,8 +86,8 @@ fn error_invalid_box_length() {
     );
 
     assert_eq!(
-        DataBox::from_slice(&jumbf).unwrap_err(),
-        nom::Err::Error(Error::InvalidBoxLength(2,),)
+        DataBox::from_source(jumbf.as_slice()).unwrap_err(),
+        Error::InvalidBoxLength(2)
     );
 }
 
@@ -96,12 +101,12 @@ fn read_to_eof() {
         "746573742e64657363626f7800" // label
     );
 
-    let (rem, boxx) = DataBox::from_slice(&jumbf).unwrap();
+    let (dbox, rem) = DataBox::from_source(jumbf.as_slice()).unwrap();
     assert!(rem.is_empty());
 
     assert_eq!(
-        boxx,
-        DataBox {
+        dbox,
+        TDataBox {
             tbox: DESCRIPTION_BOX_TYPE,
             data: &[
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 116, 101, 115, 116, 46, 100,
@@ -123,12 +128,12 @@ fn read_xlbox_size() {
         "746573742e64657363626f7800" // label
     );
 
-    let (rem, boxx) = DataBox::from_slice(&jumbf).unwrap();
+    let (dbox, rem) = DataBox::from_source(jumbf.as_slice()).unwrap();
     assert!(rem.is_empty());
 
     assert_eq!(
-        boxx,
-        DataBox {
+        dbox,
+        TDataBox {
             tbox: DESCRIPTION_BOX_TYPE,
             data: &[
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 116, 101, 115, 116, 46, 100,
@@ -151,8 +156,8 @@ fn error_xlbox_size_too_small() {
     );
 
     assert_eq!(
-        DataBox::from_slice(&jumbf).unwrap_err(),
-        nom::Err::Error(Error::InvalidBoxLength(14,),)
+        DataBox::from_source(jumbf.as_slice()).unwrap_err(),
+        Error::InvalidBoxLength(14)
     );
 }
 
@@ -167,8 +172,13 @@ fn error_incorrect_length() {
     );
 
     assert_eq!(
-        DataBox::from_slice(&jumbf).unwrap_err(),
-        nom::Err::Error(Error::Incomplete(Needed::new(30)))
+        DataBox::from_source(jumbf.as_slice()).unwrap_err(),
+        Error::SourceError {
+            source: ReadPastEndOfSlice {
+                wanted: 30,
+                have: 17
+            }
+        }
     );
 }
 
@@ -210,12 +220,12 @@ mod offset_within_superbox {
             "6332637300110010800000aa00389b717468697320776f756c64206e6f726d616c6c792062652062696e617279207369676e617475726520646174612e2e2e" // data (type unknown)
         );
 
-        let (rem, sbox_full) = SuperBox::from_slice(&jumbf).unwrap();
+        let (sbox_full, rem) = SuperBox::from_source(jumbf.as_slice()).unwrap();
         assert!(rem.is_empty());
 
         assert_eq!(sbox_full.original.len(), 119);
 
-        let (rem, sbox_short) = SuperBox::from_slice(&jumbf[0..118]).unwrap();
+        let (sbox_short, rem) = SuperBox::from_source(&jumbf[0..118]).unwrap();
 
         assert!(rem.is_empty());
         assert_eq!(sbox_short.original.len(), 118);
@@ -252,7 +262,8 @@ mod offset_within_superbox {
                     "6a756d64" // box type = 'jumd'
                     "63326d6100110010800000aa00389b71" // UUID
                     "03" // toggles
-                    "63622e61646f62655f3100" // label = "cb.adobe_1"
+                    "63622e61646f62655f3100"
+                        // label = "cb.adobe_1"
                     // ---
                     "0000008f" // box size
                     "6a756d62" // box type = 'jumb'
@@ -260,7 +271,8 @@ mod offset_within_superbox {
                         "6a756d64" // box type = 'jumd'
                         "6332617300110010800000aa00389b71" // UUID
                         "03" // toggles
-                        "633270612e617373657274696f6e7300" // label = "c2pa.assertions"
+                        "633270612e617373657274696f6e7300"
+                            // label = "c2pa.assertions"
                         // ---
                         "0000005e" // box size
                         "6a756d62" // box type = 'jumb'
@@ -282,7 +294,8 @@ mod offset_within_superbox {
                         "6a756d64" // box type = 'jumd'
                         "6332636c00110010800000aa00389b71" // UUID
                         "03" // toggles
-                        "633270612e636c61696d00" // label = "c2pa.claim"
+                        "633270612e636c61696d00"
+                            // label = "c2pa.claim"
                         // ---
                         "000000e3" // box size
                         "6a736f6e" // box type = 'json'
@@ -307,7 +320,8 @@ mod offset_within_superbox {
                         "6a756d64" // box type = 'jumd'
                         "6332637300110010800000aa00389b71" // UUID
                         "03" // toggles
-                        "633270612e7369676e617475726500" // label = "c2pa.signature"
+                        "633270612e7369676e617475726500"
+                            // label = "c2pa.signature"
                         // ---
                         "00000047" // box size
                         "75756964" // box type = 'uuid'
@@ -317,7 +331,7 @@ mod offset_within_superbox {
                         "676e617475726520646174612e2e2e"
         );
 
-        let (rem, sbox) = SuperBox::from_slice(&jumbf).unwrap();
+        let (sbox, rem) = SuperBox::from_source(jumbf.as_slice()).unwrap();
         assert!(rem.is_empty());
 
         let claim_dbox = sbox

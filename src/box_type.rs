@@ -59,6 +59,7 @@ impl From<&[u8; 4]> for BoxType {
 }
 
 /// Box type for JUMBF description box (`b"jumd"`).
+#[allow(dead_code)] // TEMPORARY while refactoring
 pub const DESCRIPTION_BOX_TYPE: BoxType = BoxType(*b"jumd");
 
 /// Box type for JUMBF super box (`b"jumb"`).

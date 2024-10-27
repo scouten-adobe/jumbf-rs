@@ -19,7 +19,9 @@ use crate::{
     BoxType,
 };
 
-const JUMBF: [u8; 615] = hex!(
+type TDataBox<'a> = DataBox<&'a [u8]>;
+
+const JUMBF: &[u8] = hex!(
     "00000267" // box size
     "6a756d62" // box type = 'jumb'
         "0000001e" // box size
@@ -97,19 +99,20 @@ const JUMBF: [u8; 615] = hex!(
                 "7468697320776f756c64206e6f726d61"
                 "6c6c792062652062696e617279207369"
                 "676e617475726520646174612e2e2e"
-);
+)
+.as_slice();
 
 #[test]
 fn depth_limit_0() {
-    let (rem, sbox) = SuperBox::from_slice_with_depth_limit(&JUMBF, 0).unwrap();
+    let (sbox, rem) = SuperBox::from_source_with_depth_limit(JUMBF, 0).unwrap();
     assert!(rem.is_empty());
 
     assert_eq!(
         sbox,
         SuperBox {
             desc: DescriptionBox {
-                uuid: &[99, 50, 112, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
-                label: Some("c2pa"),
+                uuid: [99, 50, 112, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                label: Some("c2pa".to_owned()),
                 requestable: true,
                 id: None,
                 hash: None,
@@ -121,7 +124,7 @@ fn depth_limit_0() {
                 original: &JUMBF[38..615],
                 data: &JUMBF[46..615],
             })),
-            original: &JUMBF,
+            original: JUMBF,
         }
     );
 
@@ -141,14 +144,14 @@ fn depth_limit_0() {
         }
     );
 
-    let (_, nested_box) = SuperBox::from_data_box(data_box).unwrap();
+    let nested_box = SuperBox::from_data_box(data_box).unwrap();
 
     assert_eq!(
         nested_box,
         SuperBox {
             desc: DescriptionBox {
-                uuid: &[99, 50, 109, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
-                label: Some("cb.adobe_1"),
+                uuid: [99, 50, 109, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                label: Some("cb.adobe_1".to_owned()),
                 requestable: true,
                 id: None,
                 hash: None,
@@ -158,8 +161,8 @@ fn depth_limit_0() {
             child_boxes: vec!(
                 ChildBox::SuperBox(SuperBox {
                     desc: DescriptionBox {
-                        uuid: &[99, 50, 97, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
-                        label: Some("c2pa.assertions",),
+                        uuid: [99, 50, 97, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                        label: Some("c2pa.assertions".to_owned()),
                         requestable: true,
                         id: None,
                         hash: None,
@@ -168,10 +171,10 @@ fn depth_limit_0() {
                     },
                     child_boxes: vec![ChildBox::SuperBox(SuperBox {
                         desc: DescriptionBox {
-                            uuid: &[
+                            uuid: [
                                 106, 115, 111, 110, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,
                             ],
-                            label: Some("c2pa.location.broad",),
+                            label: Some("c2pa.location.broad".to_owned()),
                             requestable: true,
                             id: None,
                             hash: None,
@@ -193,8 +196,8 @@ fn depth_limit_0() {
                 },),
                 ChildBox::SuperBox(SuperBox {
                     desc: DescriptionBox {
-                        uuid: &[99, 50, 99, 108, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
-                        label: Some("c2pa.claim",),
+                        uuid: [99, 50, 99, 108, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                        label: Some("c2pa.claim".to_owned()),
                         requestable: true,
                         id: None,
                         hash: None,
@@ -225,8 +228,8 @@ fn depth_limit_0() {
                 },),
                 ChildBox::SuperBox(SuperBox {
                     desc: DescriptionBox {
-                        uuid: &[99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
-                        label: Some("c2pa.signature",),
+                        uuid: [99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                        label: Some("c2pa.signature".to_owned()),
                         requestable: true,
                         id: None,
                         hash: None,
@@ -254,15 +257,15 @@ fn depth_limit_0() {
 
 #[test]
 fn depth_limit_1() {
-    let (rem, sbox) = SuperBox::from_slice_with_depth_limit(&JUMBF, 1).unwrap();
+    let (sbox, rem) = SuperBox::from_source_with_depth_limit(JUMBF, 1).unwrap();
     assert!(rem.is_empty());
 
     assert_eq!(
         sbox,
         SuperBox {
             desc: DescriptionBox {
-                uuid: &[99, 50, 112, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
-                label: Some("c2pa"),
+                uuid: [99, 50, 112, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                label: Some("c2pa".to_owned()),
                 requestable: true,
                 id: None,
                 hash: None,
@@ -271,8 +274,8 @@ fn depth_limit_1() {
             },
             child_boxes: vec!(ChildBox::SuperBox(SuperBox {
                 desc: DescriptionBox {
-                    uuid: &[99, 50, 109, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
-                    label: Some("cb.adobe_1"),
+                    uuid: [99, 50, 109, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                    label: Some("cb.adobe_1".to_owned()),
                     requestable: true,
                     id: None,
                     hash: None,
@@ -298,7 +301,7 @@ fn depth_limit_1() {
                 ),
                 original: &JUMBF[38..615],
             })),
-            original: &JUMBF,
+            original: JUMBF,
         }
     );
 
@@ -309,15 +312,15 @@ fn depth_limit_1() {
 
 #[test]
 fn depth_limit_2() {
-    let (rem, sbox) = SuperBox::from_slice_with_depth_limit(&JUMBF, 2).unwrap();
+    let (sbox, rem) = SuperBox::from_source_with_depth_limit(JUMBF, 2).unwrap();
     assert!(rem.is_empty());
 
     assert_eq!(
         sbox,
         SuperBox {
             desc: DescriptionBox {
-                uuid: &[99, 50, 112, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
-                label: Some("c2pa"),
+                uuid: [99, 50, 112, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                label: Some("c2pa".to_owned()),
                 requestable: true,
                 id: None,
                 hash: None,
@@ -326,8 +329,8 @@ fn depth_limit_2() {
             },
             child_boxes: vec!(ChildBox::SuperBox(SuperBox {
                 desc: DescriptionBox {
-                    uuid: &[99, 50, 109, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
-                    label: Some("cb.adobe_1"),
+                    uuid: [99, 50, 109, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                    label: Some("cb.adobe_1".to_owned()),
                     requestable: true,
                     id: None,
                     hash: None,
@@ -337,10 +340,8 @@ fn depth_limit_2() {
                 child_boxes: vec!(
                     ChildBox::SuperBox(SuperBox {
                         desc: DescriptionBox {
-                            uuid: &[
-                                99, 50, 97, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,
-                            ],
-                            label: Some("c2pa.assertions",),
+                            uuid: [99, 50, 97, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                            label: Some("c2pa.assertions".to_owned()),
                             requestable: true,
                             id: None,
                             hash: None,
@@ -356,10 +357,8 @@ fn depth_limit_2() {
                     },),
                     ChildBox::SuperBox(SuperBox {
                         desc: DescriptionBox {
-                            uuid: &[
-                                99, 50, 99, 108, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,
-                            ],
-                            label: Some("c2pa.claim",),
+                            uuid: [99, 50, 99, 108, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                            label: Some("c2pa.claim".to_owned()),
                             requestable: true,
                             id: None,
                             hash: None,
@@ -391,10 +390,8 @@ fn depth_limit_2() {
                     },),
                     ChildBox::SuperBox(SuperBox {
                         desc: DescriptionBox {
-                            uuid: &[
-                                99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,
-                            ],
-                            label: Some("c2pa.signature",),
+                            uuid: [99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                            label: Some("c2pa.signature".to_owned()),
                             requestable: true,
                             id: None,
                             hash: None,
@@ -417,7 +414,7 @@ fn depth_limit_2() {
                 ),
                 original: &JUMBF[38..615],
             })),
-            original: &JUMBF,
+            original: JUMBF,
         }
     );
 
@@ -425,8 +422,8 @@ fn depth_limit_2() {
         sbox.find_by_label("cb.adobe_1/c2pa.signature"),
         Some(&SuperBox {
             desc: DescriptionBox {
-                uuid: &[99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
-                label: Some("c2pa.signature",),
+                uuid: [99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                label: Some("c2pa.signature".to_owned()),
                 requestable: true,
                 id: None,
                 hash: None,
@@ -454,7 +451,7 @@ fn depth_limit_2() {
     assert_eq!(
         sbox.find_by_label("cb.adobe_1/c2pa.signature")
             .and_then(|sig| sig.data_box()),
-        Some(&DataBox {
+        Some(&TDataBox {
             tbox: BoxType(*b"uuid"),
             data: &[
                 99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113, 116, 104, 105, 115,
@@ -471,15 +468,15 @@ fn depth_limit_2() {
 
 #[test]
 fn depth_limit_3() {
-    let (rem, sbox) = SuperBox::from_slice_with_depth_limit(&JUMBF, 3).unwrap();
+    let (sbox, rem) = SuperBox::from_source_with_depth_limit(JUMBF, 3).unwrap();
     assert!(rem.is_empty());
 
     assert_eq!(
         sbox,
         SuperBox {
             desc: DescriptionBox {
-                uuid: &[99, 50, 112, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
-                label: Some("c2pa"),
+                uuid: [99, 50, 112, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                label: Some("c2pa".to_owned()),
                 requestable: true,
                 id: None,
                 hash: None,
@@ -488,8 +485,8 @@ fn depth_limit_3() {
             },
             child_boxes: vec!(ChildBox::SuperBox(SuperBox {
                 desc: DescriptionBox {
-                    uuid: &[99, 50, 109, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
-                    label: Some("cb.adobe_1"),
+                    uuid: [99, 50, 109, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                    label: Some("cb.adobe_1".to_owned()),
                     requestable: true,
                     id: None,
                     hash: None,
@@ -499,10 +496,8 @@ fn depth_limit_3() {
                 child_boxes: vec!(
                     ChildBox::SuperBox(SuperBox {
                         desc: DescriptionBox {
-                            uuid: &[
-                                99, 50, 97, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,
-                            ],
-                            label: Some("c2pa.assertions",),
+                            uuid: [99, 50, 97, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                            label: Some("c2pa.assertions".to_owned()),
                             requestable: true,
                             id: None,
                             hash: None,
@@ -511,11 +506,11 @@ fn depth_limit_3() {
                         },
                         child_boxes: vec![ChildBox::SuperBox(SuperBox {
                             desc: DescriptionBox {
-                                uuid: &[
+                                uuid: [
                                     106, 115, 111, 110, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155,
                                     113,
                                 ],
-                                label: Some("c2pa.location.broad",),
+                                label: Some("c2pa.location.broad".to_owned()),
                                 requestable: true,
                                 id: None,
                                 hash: None,
@@ -537,10 +532,8 @@ fn depth_limit_3() {
                     },),
                     ChildBox::SuperBox(SuperBox {
                         desc: DescriptionBox {
-                            uuid: &[
-                                99, 50, 99, 108, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,
-                            ],
-                            label: Some("c2pa.claim",),
+                            uuid: [99, 50, 99, 108, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                            label: Some("c2pa.claim".to_owned()),
                             requestable: true,
                             id: None,
                             hash: None,
@@ -572,10 +565,8 @@ fn depth_limit_3() {
                     },),
                     ChildBox::SuperBox(SuperBox {
                         desc: DescriptionBox {
-                            uuid: &[
-                                99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,
-                            ],
-                            label: Some("c2pa.signature",),
+                            uuid: [99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                            label: Some("c2pa.signature".to_owned()),
                             requestable: true,
                             id: None,
                             hash: None,
@@ -598,7 +589,7 @@ fn depth_limit_3() {
                 ),
                 original: &JUMBF[38..615],
             })),
-            original: &JUMBF,
+            original: JUMBF,
         }
     );
 
@@ -606,8 +597,8 @@ fn depth_limit_3() {
         sbox.find_by_label("cb.adobe_1/c2pa.signature"),
         Some(&SuperBox {
             desc: DescriptionBox {
-                uuid: &[99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
-                label: Some("c2pa.signature",),
+                uuid: [99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                label: Some("c2pa.signature".to_owned()),
                 requestable: true,
                 id: None,
                 hash: None,
@@ -635,7 +626,7 @@ fn depth_limit_3() {
     assert_eq!(
         sbox.find_by_label("cb.adobe_1/c2pa.signature")
             .and_then(|sig| sig.data_box()),
-        Some(&DataBox {
+        Some(&TDataBox {
             tbox: BoxType(*b"uuid"),
             data: &[
                 99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113, 116, 104, 105, 115,

@@ -1,11 +1,11 @@
 use codspeed_criterion_compat::{black_box, criterion_group, criterion_main, Criterion};
 use jumbf::parser::DataBox;
 
-const C2PA_MANIFEST_STORE: &[u8; 46948] = include_bytes!("../src/tests/fixtures/C.c2pa");
+const C2PA_MANIFEST_STORE: &[u8] = include_bytes!("../src/tests/fixtures/C.c2pa").as_slice();
 
 pub fn parse_c2pa(c: &mut Criterion) {
     c.bench_function("parse sample C2PA Manifest Store", |b| {
-        b.iter(|| DataBox::from_slice(black_box(C2PA_MANIFEST_STORE)).unwrap());
+        b.iter(|| DataBox::from_source(black_box(C2PA_MANIFEST_STORE)).unwrap());
     });
 }
 

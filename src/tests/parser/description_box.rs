@@ -12,16 +12,17 @@
 // each license.
 
 use hex_literal::hex;
-use nom::Needed;
 use pretty_assertions_sorted::assert_eq;
 
 use crate::{
-    parser::{DataBox, DescriptionBox, Error},
+    parser::{DataBox, DescriptionBox, Error, ReadPastEndOfSlice},
     BoxType,
 };
 
+type TDescriptionBox<'a> = DescriptionBox<&'a [u8]>;
+
 #[test]
-fn from_slice() {
+fn from_source() {
     let jumbf = hex!(
         "00000026" // box size
         "6a756d64" // box type = 'jumd'
@@ -30,14 +31,14 @@ fn from_slice() {
         "746573742e64657363626f7800" // label
     );
 
-    let (rem, dbox) = DescriptionBox::from_slice(&jumbf).unwrap();
+    let (desc, rem) = DescriptionBox::from_source(jumbf.as_slice()).unwrap();
     assert!(rem.is_empty());
 
     assert_eq!(
-        dbox,
-        DescriptionBox {
-            uuid: &[0; 16],
-            label: Some("test.descbox",),
+        desc,
+        TDescriptionBox {
+            uuid: [0u8; 16],
+            label: Some("test.descbox".to_owned()),
             requestable: true,
             id: None,
             hash: None,
@@ -46,11 +47,11 @@ fn from_slice() {
         }
     );
 
-    assert_eq!(format!("{dbox:#?}"), "DescriptionBox {\n    uuid: [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00],\n    label: Some(\n        \"test.descbox\",\n    ),\n    requestable: true,\n    id: None,\n    hash: None,\n    private: None,\n    original: 38 bytes starting with [00, 00, 00, 26, 6a, 75, 6d, 64, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00],\n}");
+    assert_eq!(format!("{desc:#?}"), "DescriptionBox {\n    uuid: [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00],\n    label: Some(\n        \"test.descbox\",\n    ),\n    requestable: true,\n    id: None,\n    hash: None,\n    private: None,\n    original: 38 bytes starting with [00, 00, 00, 26, 6a, 75, 6d, 64, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00],\n}");
 }
 
 #[test]
-fn from_box() {
+fn from_data_box() {
     let jumbf = hex!(
         "00000026" // box size
         "6a756d64" // box type = 'jumd'
@@ -59,17 +60,17 @@ fn from_box() {
         "746573742e64657363626f7800" // label
     );
 
-    let (rem, boxx) = DataBox::from_slice(&jumbf).unwrap();
+    let (dbox, rem) = DataBox::from_source(jumbf.as_slice()).unwrap();
     assert!(rem.is_empty());
 
-    let (rem, dbox) = DescriptionBox::from_box(boxx).unwrap();
+    let desc = DescriptionBox::from_data_box(dbox).unwrap();
     assert!(rem.is_empty());
 
     assert_eq!(
-        dbox,
-        DescriptionBox {
-            uuid: &[0; 16],
-            label: Some("test.descbox",),
+        desc,
+        TDescriptionBox {
+            uuid: [0; 16],
+            label: Some("test.descbox".to_owned()),
             requestable: true,
             id: None,
             hash: None,
@@ -78,7 +79,10 @@ fn from_box() {
         }
     );
 
-    assert_eq!(format!("{dbox:#?}"), "DescriptionBox {\n    uuid: [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00],\n    label: Some(\n        \"test.descbox\",\n    ),\n    requestable: true,\n    id: None,\n    hash: None,\n    private: None,\n    original: 38 bytes starting with [00, 00, 00, 26, 6a, 75, 6d, 64, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00],\n}");
+    assert_eq!(
+        format!("{desc:#?}"),
+        "DescriptionBox {\n    uuid: [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00],\n    label: Some(\n        \"test.descbox\",\n    ),\n    requestable: true,\n    id: None,\n    hash: None,\n    private: None,\n    original: 38 bytes starting with [00, 00, 00, 26, 6a, 75, 6d, 64, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00],\n}"
+    );
 }
 
 #[test]
@@ -91,16 +95,15 @@ fn with_id() {
         "00001000" // ID
     );
 
-    let (rem, boxx) = DataBox::from_slice(&jumbf).unwrap();
+    let (dbox, rem) = DataBox::from_source(jumbf.as_slice()).unwrap();
     assert!(rem.is_empty());
 
-    let (rem, dbox) = DescriptionBox::from_box(boxx).unwrap();
-    assert!(rem.is_empty());
+    let desc = DescriptionBox::from_data_box(dbox).unwrap();
 
     assert_eq!(
-        dbox,
-        DescriptionBox {
-            uuid: &[0; 16],
+        desc,
+        TDescriptionBox {
+            uuid: [0; 16],
             label: None,
             requestable: false,
             id: Some(4096),
@@ -110,7 +113,10 @@ fn with_id() {
         }
     );
 
-    assert_eq!(format!("{dbox:#?}"), "DescriptionBox {\n    uuid: [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00],\n    label: None,\n    requestable: false,\n    id: Some(\n        4096,\n    ),\n    hash: None,\n    private: None,\n    original: 29 bytes starting with [00, 00, 00, 1d, 6a, 75, 6d, 64, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00],\n}");
+    assert_eq!(
+        format!("{desc:#?}"),
+        "DescriptionBox {\n    uuid: [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00],\n    label: None,\n    requestable: false,\n    id: Some(\n        4096,\n    ),\n    hash: None,\n    private: None,\n    original: 29 bytes starting with [00, 00, 00, 1d, 6a, 75, 6d, 64, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00],\n}"
+    );
 }
 
 #[test]
@@ -124,8 +130,10 @@ fn error_incomplete_id() {
     );
 
     assert_eq!(
-        DescriptionBox::from_slice(&jumbf).unwrap_err(),
-        nom::Err::Error(Error::NomError(nom::error::ErrorKind::Eof))
+        DescriptionBox::from_source(jumbf.as_slice()).unwrap_err(),
+        Error::SourceError {
+            source: ReadPastEndOfSlice { wanted: 4, have: 3 }
+        }
     );
 }
 
@@ -141,26 +149,28 @@ fn with_hash() {
         "686173682e2e2e2e2e2e2e2e2e2e2e2e" // hash
     );
 
-    let (rem, boxx) = DataBox::from_slice(&jumbf).unwrap();
+    let (dbox, rem) = DataBox::from_source(jumbf.as_slice()).unwrap();
     assert!(rem.is_empty());
 
-    let (rem, dbox) = DescriptionBox::from_box(boxx).unwrap();
-    assert!(rem.is_empty());
+    let desc = DescriptionBox::from_data_box(dbox).unwrap();
 
     assert_eq!(
-        dbox,
-        DescriptionBox {
-            uuid: &[0; 16],
-            label: Some("test.descbox",),
+        desc,
+        TDescriptionBox {
+            uuid: [0; 16],
+            label: Some("test.descbox".to_owned()),
             requestable: true,
             id: None,
-            hash: Some(b"This is a bogus hash............" as &[u8; 32]),
+            hash: Some(*b"This is a bogus hash............"),
             private: None,
             original: &jumbf,
         }
     );
 
-    assert_eq!(format!("{dbox:#?}"), "DescriptionBox {\n    uuid: [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00],\n    label: Some(\n        \"test.descbox\",\n    ),\n    requestable: true,\n    id: None,\n    hash: Some(32 bytes starting with [54, 68, 69, 73, 20, 69, 73, 20, 61, 20, 62, 6f, 67, 75, 73, 20, 68, 61, 73, 68]),\n    private: None,\n    original: 70 bytes starting with [00, 00, 00, 46, 6a, 75, 6d, 64, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00],\n}");
+    assert_eq!(
+        format!("{desc:#?}"),
+        "DescriptionBox {\n    uuid: [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00],\n    label: Some(\n        \"test.descbox\",\n    ),\n    requestable: true,\n    id: None,\n    hash: Some(32 bytes starting with [54, 68, 69, 73, 20, 69, 73, 20, 61, 20, 62, 6f, 67, 75, 73, 20, 68, 61, 73, 68]),\n    private: None,\n    original: 70 bytes starting with [00, 00, 00, 46, 6a, 75, 6d, 64, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00],\n}"
+    );
 }
 
 #[test]
@@ -177,17 +187,16 @@ fn with_private_box() {
                 "746520436974792c204e4a227d" // payload (JSON)
     );
 
-    let (rem, boxx) = DataBox::from_slice(&jumbf).unwrap();
+    let (dbox, rem) = DataBox::from_source(jumbf.as_slice()).unwrap();
     assert!(rem.is_empty());
 
-    let (rem, dbox) = DescriptionBox::from_box(boxx).unwrap();
-    assert!(rem.is_empty());
+    let desc = DescriptionBox::from_data_box(dbox).unwrap();
 
     assert_eq!(
-        dbox,
-        DescriptionBox {
-            uuid: &[0; 16],
-            label: Some("test.descbox",),
+        desc,
+        TDescriptionBox {
+            uuid: [0; 16],
+            label: Some("test.descbox".to_owned()),
             requestable: true,
             id: None,
             hash: None,
@@ -203,7 +212,10 @@ fn with_private_box() {
         }
     );
 
-    assert_eq!(format!("{dbox:#?}"), "DescriptionBox {\n    uuid: [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00],\n    label: Some(\n        \"test.descbox\",\n    ),\n    requestable: true,\n    id: None,\n    hash: None,\n    private: Some(\n        DataBox {\n            tbox: b\"json\",\n            data: 33 bytes starting with [7b, 20, 22, 6c, 6f, 63, 61, 74, 69, 6f, 6e, 22, 3a, 20, 22, 4d, 61, 72, 67, 61],\n            original: 41 bytes starting with [00, 00, 00, 29, 6a, 73, 6f, 6e, 7b, 20, 22, 6c, 6f, 63, 61, 74, 69, 6f, 6e, 22],\n        },\n    ),\n    original: 79 bytes starting with [00, 00, 00, 4f, 6a, 75, 6d, 64, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00],\n}");
+    assert_eq!(
+        format!("{desc:#?}"),
+        "DescriptionBox {\n    uuid: [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00],\n    label: Some(\n        \"test.descbox\",\n    ),\n    requestable: true,\n    id: None,\n    hash: None,\n    private: Some(\n        DataBox {\n            tbox: b\"json\",\n            data: 33 bytes starting with [7b, 20, 22, 6c, 6f, 63, 61, 74, 69, 6f, 6e, 22, 3a, 20, 22, 4d, 61, 72, 67, 61],\n            original: 41 bytes starting with [00, 00, 00, 29, 6a, 73, 6f, 6e, 7b, 20, 22, 6c, 6f, 63, 61, 74, 69, 6f, 6e, 22],\n        },\n    ),\n    original: 79 bytes starting with [00, 00, 00, 4f, 6a, 75, 6d, 64, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00],\n}"
+    );
 }
 
 #[test]
@@ -217,8 +229,8 @@ fn error_wrong_box_type() {
     );
 
     assert_eq!(
-        DescriptionBox::from_slice(&jumbf).unwrap_err(),
-        nom::Err::Error(Error::InvalidDescriptionBoxType(BoxType(*b"jumc")))
+        DescriptionBox::from_source(jumbf.as_slice()).unwrap_err(),
+        Error::InvalidDescriptionBoxType(BoxType(*b"jumc"))
     );
 }
 
@@ -231,8 +243,13 @@ fn error_incomplete_uuid() {
     );
 
     assert_eq!(
-        DescriptionBox::from_slice(&jumbf).unwrap_err(),
-        nom::Err::Error(Error::Incomplete(Needed::new(16)))
+        DescriptionBox::from_source(jumbf.as_slice()).unwrap_err(),
+        Error::SourceError {
+            source: ReadPastEndOfSlice {
+                wanted: 16,
+                have: 14
+            }
+        }
     );
 }
 
@@ -245,13 +262,13 @@ fn no_label() {
         "00" // toggles
     );
 
-    let (rem, dbox) = DescriptionBox::from_slice(&jumbf).unwrap();
+    let (desc, rem) = DescriptionBox::from_source(jumbf.as_slice()).unwrap();
     assert!(rem.is_empty());
 
     assert_eq!(
-        dbox,
-        DescriptionBox {
-            uuid: &[0; 16],
+        desc,
+        TDescriptionBox {
+            uuid: [0; 16],
             label: None,
             requestable: false,
             id: None,
@@ -261,7 +278,10 @@ fn no_label() {
         }
     );
 
-    assert_eq!(format!("{dbox:#?}"), "DescriptionBox {\n    uuid: [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00],\n    label: None,\n    requestable: false,\n    id: None,\n    hash: None,\n    private: None,\n    original: 25 bytes starting with [00, 00, 00, 19, 6a, 75, 6d, 64, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00],\n}");
+    assert_eq!(
+        format!("{desc:#?}"),
+        "DescriptionBox {\n    uuid: [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00],\n    label: None,\n    requestable: false,\n    id: None,\n    hash: None,\n    private: None,\n    original: 25 bytes starting with [00, 00, 00, 19, 6a, 75, 6d, 64, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00],\n}"
+    );
 }
 
 #[test]
@@ -277,7 +297,12 @@ fn error_incomplete_hash() {
     );
 
     assert_eq!(
-        DescriptionBox::from_slice(&jumbf).unwrap_err(),
-        nom::Err::Error(Error::Incomplete(Needed::new(32)))
+        DescriptionBox::from_source(jumbf.as_slice()).unwrap_err(),
+        Error::SourceError {
+            source: ReadPastEndOfSlice {
+                wanted: 32,
+                have: 30
+            }
+        }
     );
 }
