@@ -10,8 +10,6 @@ on:
       - labeled
   push:
     branches: main
-  schedule:
-    - cron: "0 18 * * 1,4,6" # 1800 UTC every Monday, Thursday, Saturday
 
 jobs:
   tests:
@@ -51,6 +49,9 @@ jobs:
       - name: Generate code coverage
         run: cargo llvm-cov --all-features --lcov --ignore-filename-regex tests --output-path lcov.info
 
+      - name: Remove test code from coverage reports
+        uses: scouten/uncover-tests@v1
+
       # Tokens aren't available for PRs originating from forks,
       # so we don't attempt to upload code coverage in that case.
       - name: Upload code coverage results
@@ -60,9 +61,10 @@ jobs:
           github.event.pull_request.author_association == 'COLLABORATOR' ||
           github.event.pull_request.author_association == 'MEMBER' ||
           github.event.pull_request.user.login == 'dependabot[bot]'
-        uses: codecov/codecov-action@v5.5.1
+        uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.filtered.info
           fail_ci_if_error: true
           verbose: true
 
@@ -152,8 +154,6 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@nightly
-        with:
-          components: llvm-tools-preview
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -206,6 +206,7 @@ jobs:
       contains(github.event.pull_request.labels.*.name, 'safe to test')
 
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -245,6 +246,28 @@ jobs:
       - name: Check format
         run: cargo +nightly fmt --all -- --check
 
+  taplo_fmt:
+    name: Enforce TOML format
+    if: |
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.author_association == 'OWNER' ||
+      github.event.pull_request.author_association == 'COLLABORATOR' ||
+      github.event.pull_request.author_association == 'MEMBER' ||
+      github.event.pull_request.user.login == 'dependabot[bot]' ||
+      contains(github.event.pull_request.labels.*.name, 'safe to test')
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Taplo CLI
+        run: cargo install taplo-cli --locked
+
+      - name: Check TOML format
+        run: taplo fmt --check
+
   docs_rs:
     name: Preflight docs.rs build
     if: |
@@ -264,7 +287,7 @@ jobs:
       - name: Install nightly Rust toolchain
         # Nightly is used here because the docs.rs build
         # uses nightly and we use doc_cfg features that are
-        # not in stable Rust as of this writing (Rust 1.74).
+        # not in stable Rust as of this writing (Rust 1.88).
         uses: dtolnay/rust-toolchain@nightly
 
       - name: Run cargo docs
@@ -276,6 +299,30 @@ jobs:
         env:
           RUSTDOCFLAGS: --cfg docsrs
           DOCS_RS: 1
+
+  internal_docs:
+    name: Verify internal crate documentation
+    if: |
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.author_association == 'OWNER' ||
+      github.event.pull_request.author_association == 'COLLABORATOR' ||
+      github.event.pull_request.author_association == 'MEMBER' ||
+      github.event.pull_request.user.login == 'dependabot[bot]' ||
+      contains(github.event.pull_request.labels.*.name, 'safe to test')
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install nightly Rust toolchain
+        # Nightly is used here because we use doc_cfg features
+        # that are not in stable Rust as of this writing (Rust 1.88).
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Preflight cargo doc
+        run: cargo +nightly doc --no-deps --document-private-items
 
   cargo-deny:
     name: License / vulnerability audit
@@ -350,7 +397,8 @@ jobs:
         run: cargo codspeed build
 
       - name: Run the benchmarks
-        uses: CodSpeedHQ/action@v3
+        uses: CodSpeedHQ/action@v4
         with:
+          mode: instrumentation
           run: cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
