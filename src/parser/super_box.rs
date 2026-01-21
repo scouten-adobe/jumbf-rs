@@ -160,7 +160,7 @@ impl<'a> SuperBox<'a> {
         if let Some(sbox) = matching_children.first() {
             if matching_children.len() == 1 {
                 if let Some(suffix) = suffix {
-                    return sbox.find_by_label(suffix);
+                    sbox.find_by_label(suffix)
                 } else {
                     Some(sbox)
                 }
@@ -198,7 +198,7 @@ impl<'a> Debug for SuperBox<'a> {
 }
 
 // Parse boxes from slice until slice is empty.
-fn boxes_from_slice(i: &[u8]) -> ParseResult<Vec<DataBox<'_>>> {
+fn boxes_from_slice(i: &[u8]) -> ParseResult<'_, Vec<DataBox<'_>>> {
     let mut result: Vec<DataBox> = vec![];
     let mut i = i;
 

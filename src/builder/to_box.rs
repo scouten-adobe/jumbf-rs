@@ -11,7 +11,7 @@
 // specific language governing permissions and limitations under
 // each license.
 
-use std::io::{Error, ErrorKind, Result, Seek, SeekFrom, Write};
+use std::io::{Error, Result, Seek, SeekFrom, Write};
 
 use crate::BoxType;
 
@@ -133,8 +133,7 @@ struct CountingSink {
 impl Seek for CountingSink {
     fn seek(&mut self, _pos: SeekFrom) -> Result<u64> {
         // Shouldn't need to seek while counting payload size.
-        Err(Error::new(
-            ErrorKind::Other,
+        Err(Error::other(
             "shouldn't need to seek while calculating payload size",
         ))
     }
