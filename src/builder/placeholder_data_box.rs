@@ -13,7 +13,7 @@
 
 use std::{
     cell::RefCell,
-    io::{Error, ErrorKind, Result},
+    io::{Error, Result},
 };
 
 use crate::{
@@ -71,8 +71,7 @@ impl PlaceholderDataBox {
     /// [`offset()`]: Self::offset()
     pub fn replace_payload(&self, to_stream: &mut dyn WriteAndSeek, payload: &[u8]) -> Result<()> {
         if payload.len() > self.size {
-            return Err(Error::new(
-                ErrorKind::Other,
+            return Err(Error::other(
                 format!("replace_payload: payload ({len} bytes) is larger than reserved capacity ({reserve} bytes)", len = payload.len(), reserve = self.size)
             ));
         }
@@ -86,8 +85,7 @@ impl PlaceholderDataBox {
             // HINT: If you receive this error, be sure to call write_jumbf() on a superbox
             // containing this box first.
 
-            Err(Error::new(
-                ErrorKind::Other,
+            Err(Error::other(
                 "replace_payload: no offset recorded; call write_jumbf() first".to_string(),
             ))
         }
@@ -108,8 +106,7 @@ impl ToBox for PlaceholderDataBox {
 
         match offset {
             0 => {
-                return Err(Error::new(
-                    ErrorKind::Other,
+                return Err(Error::other(
                     "placeholder stream should have some data already",
                 ));
             }
