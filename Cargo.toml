@@ -1,23 +1,25 @@
 [package]
-name = "jumbf"
-version = "0.4.1"
-description = "A JUMBF (ISO/IEC 19566-5:2023) parser and builder written in pure Rust."
 authors = ["Eric Scouten <scouten@adobe.com>"]
-license = "MIT OR Apache-2.0"
+categories = ["parsing"]
+description = "A JUMBF (ISO/IEC 19566-5:2023) parser and builder written in pure Rust."
 documentation = "https://docs.rs/jumbf"
-repository = "https://github.com/scouten-adobe/jumbf-rs"
-readme = "README.md"
 edition = "2021"
 keywords = ["jumbf"]
-categories = ["parsing"]
+license = "MIT OR Apache-2.0"
+name = "jumbf"
+readme = "README.md"
+repository = "https://github.com/scouten-adobe/jumbf-rs"
 rust-version = "1.88.0"
+version = "0.4.1"
 
 [features]
 default = ["parser"]
 parser = ["nom", "thiserror"]
 
 [dependencies]
-nom = { version = "7.1", optional = true, default-features = false, features = ["std"] }
+nom = { version = "7.1", optional = true, default-features = false, features = [
+  "std",
+] }
 thiserror = { version = "1.0.58", optional = true }
 
 [dev-dependencies]
@@ -27,13 +29,13 @@ hex-literal = "0.4.1"
 pretty_assertions_sorted = "1.2.3"
 
 [[bench]]
-name = "simple_data_box"
 harness = false
+name = "simple_data_box"
 required-features = ["parser"]
 
 [[bench]]
-name = "parse_c2pa"
 harness = false
+name = "parse_c2pa"
 required-features = ["parser"]
 
 [package.metadata.cargo-udeps.ignore]
