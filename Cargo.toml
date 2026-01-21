@@ -34,5 +34,5 @@ harness = false
 name = "parse_c2pa"
 harness = false
 
-[[package.metadata.cargo-udeps.ignore]]
+[package.metadata.cargo-udeps.ignore]
 development = ["criterion"]
