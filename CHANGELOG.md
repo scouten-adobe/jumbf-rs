@@ -2,9 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
-This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), except that – as is typical in the Rust community – the minimum supported Rust version may be increased without a major version increase.
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Since version 0.4.1, the format of this changelog is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+As of January 2026 and until the 1.0.0 version is released, the authors will only make minor version changes (incrementing the `x` in `0.x.0`) if breaking changes are made. Features will now result in a patch version change (incrementing the `y` in `0.x.y`). This brings us into closer compliance with typical SemVer practice (and follows the default behavior of [`release-plz`](https://release-plz.dev/docs/config#the-features_always_increment_minor-field).
 
 ## [0.4.1](https://github.com/scouten-adobe/jumbf-rs/compare/v0.4.0...v0.4.1)
 _28 September 2024_

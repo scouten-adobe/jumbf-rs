@@ -29,10 +29,12 @@ pretty_assertions_sorted = "1.2.3"
 [[bench]]
 name = "simple_data_box"
 harness = false
+required-features = ["parser"]
 
 [[bench]]
 name = "parse_c2pa"
 harness = false
+required-features = ["parser"]
 
 [package.metadata.cargo-udeps.ignore]
 development = ["criterion"]
