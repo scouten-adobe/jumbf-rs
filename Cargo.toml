@@ -23,7 +23,7 @@ nom = { version = "7.1", optional = true, default-features = false, features = [
 thiserror = { version = "1.0.58", optional = true }
 
 [dev-dependencies]
-codspeed-criterion-compat = "2.4"
+codspeed-criterion-compat = "4.2"
 criterion = "0.8.1"
 hex-literal = "1.1.0"
 pretty_assertions_sorted = "1.2.3"
