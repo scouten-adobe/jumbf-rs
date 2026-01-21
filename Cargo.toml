@@ -10,7 +10,7 @@ readme = "README.md"
 edition = "2021"
 keywords = ["jumbf"]
 categories = ["parsing"]
-rust-version = "1.80.0"
+rust-version = "1.85.0"
 
 [features]
 default = ["parser"]
