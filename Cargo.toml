@@ -20,7 +20,7 @@ parser = ["nom", "thiserror"]
 nom = { version = "7.1", optional = true, default-features = false, features = [
   "std",
 ] }
-thiserror = { version = "1.0.58", optional = true }
+thiserror = { version = "2.0.17", optional = true }
 
 [dev-dependencies]
 codspeed-criterion-compat = "4.2"
