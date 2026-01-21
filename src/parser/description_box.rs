@@ -16,12 +16,6 @@ use std::{
     str::from_utf8,
 };
 
-use nom::{
-    bytes::complete::take_until,
-    number::complete::{be_u32, be_u8},
-    Needed,
-};
-
 use crate::{
     box_type::DESCRIPTION_BOX_TYPE,
     debug::*,
@@ -87,20 +81,26 @@ impl<'a> DescriptionBox<'a> {
         use crate::toggles;
 
         if boxx.tbox != DESCRIPTION_BOX_TYPE {
-            return Err(nom::Err::Error(Error::InvalidDescriptionBoxType(boxx.tbox)));
+            return Err(Error::InvalidDescriptionBoxType(boxx.tbox));
         }
 
+        // Read 16-byte UUID.
         let (i, uuid): (&'a [u8], &'a [u8; 16]) = if boxx.data.len() >= 16 {
             let (uuid, i) = boxx.data.split_at(16);
             let uuid = uuid[0..16]
                 .try_into()
-                .map_err(|_| nom::Err::Error(Error::Incomplete(Needed::new(16))))?;
+                .map_err(|_| Error::Incomplete(16 - uuid.len()))?;
             (i, uuid)
         } else {
-            return Err(nom::Err::Error(Error::Incomplete(Needed::new(16))));
+            return Err(Error::Incomplete(16 - boxx.data.len()));
         };
 
-        let (i, toggles) = be_u8(i)?;
+        // Read 1-byte toggles field.
+        if i.is_empty() {
+            return Err(Error::Incomplete(1));
+        }
+        let toggles = i[0];
+        let i = &i[1..];
 
         // Toggle bit 0 (0x01) indicates that this superbox can be requested
         // via URI requests.
@@ -108,9 +108,10 @@ impl<'a> DescriptionBox<'a> {
 
         // Toggle bit 1 (0x02) indicates that the label has an optional textual label.
         let (i, label) = if toggles & toggles::HAS_LABEL != 0 {
-            let (i, label) = take_until("\0")(i)?;
-            let label = from_utf8(label).map_err(Error::Utf8Error)?;
-            (&i[1..], Some(label))
+            // Find null terminator.
+            let null_pos = i.iter().position(|&b| b == 0).ok_or(Error::Incomplete(1))?;
+            let label = from_utf8(&i[..null_pos]).map_err(Error::Utf8Error)?;
+            (&i[null_pos + 1..], Some(label))
         } else {
             (i, None)
         };
@@ -118,8 +119,12 @@ impl<'a> DescriptionBox<'a> {
         // Toggle bit 2 (0x04) indicates that the label has an optional
         // application-specific 32-bit identifier.
         let (i, id) = if toggles & toggles::HAS_ID != 0 {
-            let (i, id) = be_u32(i)?;
-            (i, Some(id))
+            if i.len() < 4 {
+                return Err(Error::Incomplete(4 - i.len()));
+            }
+
+            let id = u32::from_be_bytes([i[0], i[1], i[2], i[3]]);
+            (&i[4..], Some(id))
         } else {
             (i, None)
         };
@@ -131,10 +136,10 @@ impl<'a> DescriptionBox<'a> {
                 let (sig, x) = i.split_at(32);
                 let sig = sig[0..32]
                     .try_into()
-                    .map_err(|_| nom::Err::Error(Error::Incomplete(Needed::new(32))))?;
+                    .map_err(|_| Error::Incomplete(32 - sig.len()))?;
                 (x, sig)
             } else {
-                return Err(nom::Err::Error(Error::Incomplete(Needed::new(32))));
+                return Err(Error::Incomplete(32 - i.len()));
             };
 
             (x, Some(sig))

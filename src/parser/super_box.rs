@@ -95,7 +95,7 @@ impl<'a> SuperBox<'a> {
         depth_limit: usize,
     ) -> ParseResult<'a, Self> {
         if data_box.tbox != SUPER_BOX_TYPE {
-            return Err(nom::Err::Error(Error::InvalidSuperBoxType(data_box.tbox)));
+            return Err(Error::InvalidSuperBoxType(data_box.tbox));
         }
 
         let (i, desc) = DescriptionBox::from_slice(data_box.data)?;
@@ -198,7 +198,7 @@ impl<'a> Debug for SuperBox<'a> {
 }
 
 // Parse boxes from slice until slice is empty.
-fn boxes_from_slice(i: &[u8]) -> ParseResult<Vec<DataBox<'_>>> {
+fn boxes_from_slice(i: &[u8]) -> ParseResult<'_, Vec<DataBox<'_>>> {
     let mut result: Vec<DataBox> = vec![];
     let mut i = i;
 

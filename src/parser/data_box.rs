@@ -13,11 +13,6 @@
 
 use std::fmt::{Debug, Formatter};
 
-use nom::{
-    number::complete::{be_u32, be_u64},
-    Needed,
-};
-
 use crate::{
     debug::*,
     parser::{Error, ParseResult, SuperBox},
@@ -70,31 +65,50 @@ impl<'a> DataBox<'a> {
     /// The returned object uses zero-copy, and so has the same lifetime as the
     /// input.
     pub fn from_slice(original: &'a [u8]) -> ParseResult<'a, Self> {
-        let (i, len) = be_u32(original)?;
+        // Read 4-byte length field.
+        if original.len() < 4 {
+            return Err(Error::Incomplete(4 - original.len()));
+        }
 
+        let len = u32::from_be_bytes([original[0], original[1], original[2], original[3]]);
+        let i = &original[4..];
+
+        // Read 4-byte box type.
         let (i, tbox): (&'a [u8], BoxType) = if i.len() >= 4 {
             let (tbox, i) = i.split_at(4);
             (i, tbox.into())
         } else {
-            return Err(nom::Err::Error(Error::Incomplete(Needed::new(4))));
+            return Err(Error::Incomplete(4 - i.len()));
         };
 
+        // Determine actual data length.
         let (i, len, original_len) = match len {
             0 => (i, i.len(), original.len()),
+
             1 => {
-                let (i, len) = be_u64(i)?;
+                // Extended length: read 8-byte length field.
+                if i.len() < 8 {
+                    return Err(Error::Incomplete(8 - i.len()));
+                }
+
+                let len = u64::from_be_bytes([i[0], i[1], i[2], i[3], i[4], i[5], i[6], i[7]]);
+                let i = &i[8..];
+
                 if len >= 16 {
                     (i, len as usize - 16, len as usize)
                 } else {
-                    return Err(nom::Err::Error(Error::InvalidBoxLength(len as u32)));
+                    return Err(Error::InvalidBoxLength(len as u32));
                 }
             }
+
             2..=7 => {
-                return Err(nom::Err::Error(Error::InvalidBoxLength(len)));
+                return Err(Error::InvalidBoxLength(len));
             }
+
             len => (i, len as usize - 8, len as usize),
         };
 
+        // Extract data payload.
         if i.len() >= len {
             let (data, i) = i.split_at(len);
             Ok((
@@ -106,7 +120,7 @@ impl<'a> DataBox<'a> {
                 },
             ))
         } else {
-            Err(nom::Err::Error(Error::Incomplete(Needed::new(len))))
+            Err(Error::Incomplete(len - i.len()))
         }
     }
 
