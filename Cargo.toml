@@ -23,10 +23,11 @@ nom = { version = "7.1", optional = true, default-features = false, features = [
 thiserror = { version = "2.0.17", optional = true }
 
 [dev-dependencies]
-codspeed-criterion-compat = "4.2"
-criterion = "0.8.1"
 hex-literal = "1.1.0"
 pretty_assertions_sorted = "1.2.3"
+
+[target.'cfg(not(any(target_arch = "wasm32", target_os = "wasi")))'.dev-dependencies]
+codspeed-criterion-compat = "4.3.0"
 
 [[bench]]
 harness = false
