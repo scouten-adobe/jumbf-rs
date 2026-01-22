@@ -317,7 +317,7 @@ jobs:
           CC: clang
           RUST_MIN_STACK: 16777216
         run: |
-          cargo +nightly-2026-01-16 test --target wasm32-wasip2 -p c2pa_cbor --all-features -- --no-capture
+          cargo +nightly-2026-01-16 test --target wasm32-wasip2 -p jumbf --all-features -- --no-capture
 
   test-direct-minimal-versions:
     name: Unit tests with minimum versions of direct dependencies
@@ -528,7 +528,7 @@ jobs:
       - name: Preflight docs.rs
         env:
           RUSTDOCFLAGS: -Dwarnings
-        run: cargo docs-rs -p c2pa_cbor
+        run: cargo docs-rs -p jumbf
 
   internal_docs:
     name: Verify internal crate documentation
