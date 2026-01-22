@@ -11,7 +11,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Check PR title
         env:
@@ -72,12 +72,12 @@ jobs:
             exit 0;
           fi
 
-          if echo "$PR_TITLE" | grep -E '^chore: release'; then
-            echo "Exception / OK: chore release pattern"
+          if echo "$PR_TITLE" | grep -E '^chore(\(deps\))?: bump '; then
+            echo "Exception / OK: Dependabot update pattern"
             exit 0;
           fi
 
-          if echo "$PR_TITLE" | grep -E '^chore(\(deps\))?: bump '; then
+          if echo "$PR_TITLE" | grep -E '^update: update '; then
             echo "Exception / OK: Dependabot update pattern"
             exit 0;
           fi
@@ -91,6 +91,6 @@ jobs:
           echo --- commitlint results for PR title \"$PR_TITLE\" ---
           echo  
 
-          echo "$PR_TITLE" | commitlint -g .commitlintrc.no-scope.yml
+          echo "$PR_TITLE" | commitlint -g .commitlintrc.yml
 
           echo "✅ PR title matches all enforced rules."

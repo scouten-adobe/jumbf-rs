@@ -90,7 +90,7 @@ We welcome contributions to this project. For information on contributing, provi
 
 ## Requirements
 
-The crate requires **Rust version 1.74.0** or newer. When a newer version of Rust becomes required, a new minor (1.x.0) version of this crate will be released.
+The crate requires **Rust version 1.88.0** or newer. When a newer version of Rust becomes required, a new minor (1.x.0) version of this crate will be released.
 
 ### Supported platforms
 

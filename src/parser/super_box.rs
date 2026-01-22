@@ -160,7 +160,7 @@ impl<'a> SuperBox<'a> {
         if let Some(sbox) = matching_children.first() {
             if matching_children.len() == 1 {
                 if let Some(suffix) = suffix {
-                    return sbox.find_by_label(suffix);
+                    sbox.find_by_label(suffix)
                 } else {
                     Some(sbox)
                 }
