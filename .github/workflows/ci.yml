@@ -136,7 +136,7 @@ jobs:
       #     verbose: true
 
   tests-cross:
-    name: Unit tests
+    name: Unit tests (cross)
 
     if: |
       github.event_name != 'pull_request' ||
@@ -178,7 +178,7 @@ jobs:
         run: cross test --lib --all-features --target ${{ matrix.target }}
 
   tests-ios:
-    name: Unit tests on iOS simulator
+    name: Unit tests (iOS simulator)
 
     if: |
       github.event_name != 'pull_request' ||
