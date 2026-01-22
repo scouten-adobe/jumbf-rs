@@ -6,7 +6,7 @@ A [JUMBF (ISO/IEC 19566-5:2023)] parser and builder written in pure Rust.
 
 ## Parser
 
-The parser is implemented with the [nom] parser combinator framework and makes extensive use of zero-copy. Since the parsing features of this crate include dependencies on [nom] and [thiserror], those features are gated on a crate feature named `parser`, which is included by default.
+The parser makes extensive use of zero-copy parsing. Since the parsing features of this crate include a dependency on [thiserror], those features are gated on a crate feature named `parser`, which is included by default.
 
 This crate is intentionally minimal in its understanding of box content. Only `jumb` (superbox) and `jumd` (description box) content are understood. The content of all other box types (including other types described in the JUMBF standard) is generally application-specific and thus the meaning of that content is left to the caller.
 
@@ -113,5 +113,4 @@ Note that some components and dependent crates are licensed under different term
 Refer to the [CHANGELOG](https://github.com/scouten-adobe/jumbf-rs/blob/main/CHANGELOG.md) for detailed changes derived from Git commit history.
 
 [JUMBF (ISO/IEC 19566-5:2023)]: https://www.iso.org/standard/84635.html
-[nom]: https://github.com/rust-bakery/nom
 [thiserror]: https://crates.io/crates/thiserror

@@ -12,7 +12,6 @@
 // each license.
 
 use hex_literal::hex;
-use nom::{error::ErrorKind, Needed};
 use pretty_assertions_sorted::assert_eq;
 
 use crate::{
@@ -56,7 +55,7 @@ fn error_incomplete_box_length() {
 
     assert_eq!(
         DataBox::from_slice(&jumbf).unwrap_err(),
-        nom::Err::Error(Error::NomError(ErrorKind::Eof))
+        Error::Incomplete(1)
     );
 }
 
@@ -69,7 +68,7 @@ fn error_incomplete_box_type() {
 
     assert_eq!(
         DataBox::from_slice(&jumbf).unwrap_err(),
-        nom::Err::Error(Error::Incomplete(Needed::new(4)))
+        Error::Incomplete(1)
     );
 }
 
@@ -82,7 +81,7 @@ fn error_invalid_box_length() {
 
     assert_eq!(
         DataBox::from_slice(&jumbf).unwrap_err(),
-        nom::Err::Error(Error::InvalidBoxLength(2,),)
+        Error::InvalidBoxLength(2)
     );
 }
 
@@ -152,7 +151,7 @@ fn error_xlbox_size_too_small() {
 
     assert_eq!(
         DataBox::from_slice(&jumbf).unwrap_err(),
-        nom::Err::Error(Error::InvalidBoxLength(14,),)
+        Error::InvalidBoxLength(14)
     );
 }
 
@@ -168,7 +167,7 @@ fn error_incorrect_length() {
 
     assert_eq!(
         DataBox::from_slice(&jumbf).unwrap_err(),
-        nom::Err::Error(Error::Incomplete(Needed::new(30)))
+        Error::Incomplete(13)
     );
 }
 

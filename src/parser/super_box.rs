@@ -95,7 +95,7 @@ impl<'a> SuperBox<'a> {
         depth_limit: usize,
     ) -> ParseResult<'a, Self> {
         if data_box.tbox != SUPER_BOX_TYPE {
-            return Err(nom::Err::Error(Error::InvalidSuperBoxType(data_box.tbox)));
+            return Err(Error::InvalidSuperBoxType(data_box.tbox));
         }
 
         let (i, desc) = DescriptionBox::from_slice(data_box.data)?;

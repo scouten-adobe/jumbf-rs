@@ -12,7 +12,6 @@
 // each license.
 
 use hex_literal::hex;
-use nom::Needed;
 use pretty_assertions_sorted::assert_eq;
 
 use crate::{
@@ -125,7 +124,7 @@ fn error_incomplete_id() {
 
     assert_eq!(
         DescriptionBox::from_slice(&jumbf).unwrap_err(),
-        nom::Err::Error(Error::NomError(nom::error::ErrorKind::Eof))
+        Error::Incomplete(1)
     );
 }
 
@@ -218,7 +217,7 @@ fn error_wrong_box_type() {
 
     assert_eq!(
         DescriptionBox::from_slice(&jumbf).unwrap_err(),
-        nom::Err::Error(Error::InvalidDescriptionBoxType(BoxType(*b"jumc")))
+        Error::InvalidDescriptionBoxType(BoxType(*b"jumc"))
     );
 }
 
@@ -232,7 +231,7 @@ fn error_incomplete_uuid() {
 
     assert_eq!(
         DescriptionBox::from_slice(&jumbf).unwrap_err(),
-        nom::Err::Error(Error::Incomplete(Needed::new(16)))
+        Error::Incomplete(2)
     );
 }
 
@@ -278,6 +277,6 @@ fn error_incomplete_hash() {
 
     assert_eq!(
         DescriptionBox::from_slice(&jumbf).unwrap_err(),
-        nom::Err::Error(Error::Incomplete(Needed::new(32)))
+        Error::Incomplete(2)
     );
 }

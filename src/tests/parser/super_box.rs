@@ -526,7 +526,7 @@ fn error_wrong_box_type() {
 
     assert_eq!(
         SuperBox::from_slice(&jumbf).unwrap_err(),
-        nom::Err::Error(Error::InvalidSuperBoxType(BoxType(*b"jumc")))
+        Error::InvalidSuperBoxType(BoxType(*b"jumc"))
     );
 }
 
