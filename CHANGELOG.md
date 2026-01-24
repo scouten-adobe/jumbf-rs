@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 As of January 2026 and until the 1.0.0 version is released, the authors will only make minor version changes (incrementing the `x` in `0.x.0`) if breaking changes are made (including changing the minimum supported Rust version). Features will now result in a patch version change (incrementing the `y` in `0.x.y`). This brings us into closer compliance with typical SemVer practice (and follows the default behavior of [`release-plz`](https://release-plz.dev/docs/config#the-features_always_increment_minor-field).
 
+## [0.7.0](https://github.com/scouten-adobe/jumbf-rs/compare/v0.6.0...v0.7.0)
+_24 January 2026_
+
+### Added
+
+* [**breaking**] Reverse the result values from parsing functions ([#64](https://github.com/scouten-adobe/jumbf-rs/pull/64))
+* [**breaking**] Remove `ParseResult` type in favor of Rust's built in `Result` type ([#62](https://github.com/scouten-adobe/jumbf-rs/pull/62))
+
 ## [0.6.0](https://github.com/scouten-adobe/jumbf-rs/compare/v0.5.0...v0.6.0)
 _24 January 2026_
 
