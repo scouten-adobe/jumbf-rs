@@ -15,17 +15,15 @@
 #![deny(clippy::panic)]
 #![deny(clippy::unwrap_used)]
 #![deny(warnings)]
-#![cfg_attr(feature = "parser", doc = include_str!("../README.md"))]
+#![doc = include_str!("../README.md")]
 
 mod box_type;
 pub use box_type::BoxType;
 
 pub mod builder;
 
-#[cfg(feature = "parser")]
 mod debug;
 
-#[cfg(feature = "parser")]
 pub mod parser;
 
 mod toggles;

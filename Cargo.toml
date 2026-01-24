@@ -12,12 +12,8 @@ repository = "https://github.com/scouten-adobe/jumbf-rs"
 rust-version = "1.88.0"
 version = "0.5.0"
 
-[features]
-default = ["parser"]
-parser = ["thiserror"]
-
 [dependencies]
-thiserror = { version = "2.0.17", optional = true }
+thiserror = "2.0.17"
 
 [dev-dependencies]
 hex-literal = "1.1.0"
@@ -29,12 +25,10 @@ codspeed-criterion-compat = "4.3.0"
 [[bench]]
 harness = false
 name = "simple_data_box"
-required-features = ["parser"]
 
 [[bench]]
 harness = false
 name = "parse_c2pa"
-required-features = ["parser"]
 
 [package.metadata.cargo-udeps.ignore]
 development = ["criterion"]
