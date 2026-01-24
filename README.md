@@ -24,7 +24,7 @@ let jumbf = hex!(
         "746573742e7375706572626f7800" // label
 );
 
-let (rem, sbox) = SuperBox::from_slice(&jumbf).unwrap();
+let (sbox, rem) = SuperBox::from_slice(&jumbf).unwrap();
 assert!(rem.is_empty());
 
 assert_eq!(

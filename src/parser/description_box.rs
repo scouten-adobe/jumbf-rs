@@ -58,15 +58,15 @@ pub struct DescriptionBox<'a> {
 }
 
 impl<'a> DescriptionBox<'a> {
-    /// Parse a JUMBF description box, and return a tuple of the remainder of
-    /// the input and the parsed description box.
+    /// Parse a JUMBF description box, and return a tuple of the parsed
+    /// description box and the remainder of the input.
     ///
     /// The returned object uses zero-copy, and so has the same lifetime as the
     /// input.
-    pub fn from_slice(i: &'a [u8]) -> Result<(&'a [u8], Self), Error> {
-        let (i, boxx): (&'a [u8], DataBox<'a>) = DataBox::from_slice(i)?;
-        let (_, desc) = Self::from_box(boxx)?;
-        Ok((i, desc))
+    pub fn from_slice(i: &'a [u8]) -> Result<(Self, &'a [u8]), Error> {
+        let (boxx, i) = DataBox::from_slice(i)?;
+        let (desc, _) = Self::from_box(boxx)?;
+        Ok((desc, i))
     }
 
     /// Convert an existing JUMBF box to a JUMBF description box.
@@ -75,9 +75,9 @@ impl<'a> DescriptionBox<'a> {
     /// appropriate error if the box doesn't match the expected syntax for a
     /// description box.
     ///
-    /// Returns a tuple of the remainder of the input from the box (which should
-    /// typically be empty) and the new [`DescriptionBox`] object.
-    pub fn from_box(boxx: DataBox<'a>) -> Result<(&'a [u8], Self), Error> {
+    /// Returns a tuple of the new [`DescriptionBox`] object and the remainder
+    /// of the input from the box (which should typically be empty).
+    pub fn from_box(boxx: DataBox<'a>) -> Result<(Self, &'a [u8]), Error> {
         use crate::toggles;
 
         if boxx.tbox != DESCRIPTION_BOX_TYPE {
@@ -150,14 +150,13 @@ impl<'a> DescriptionBox<'a> {
         // Toggle bit 4 (0x10) indicates that an application-specific "private"
         // box is contained within the description box.
         let (i, private) = if toggles & toggles::HAS_PRIVATE_BOX != 0 {
-            let (i, private) = DataBox::from_slice(i)?;
+            let (private, i) = DataBox::from_slice(i)?;
             (i, Some(private))
         } else {
             (i, None)
         };
 
         Ok((
-            i,
             Self {
                 uuid,
                 label,
@@ -167,6 +166,7 @@ impl<'a> DescriptionBox<'a> {
                 private,
                 original: boxx.original,
             },
+            i,
         ))
     }
 }
@@ -209,7 +209,7 @@ mod tests {
             "746573742e64657363626f7800" // label
         );
 
-        let (rem, dbox) = DescriptionBox::from_slice(&jumbf).unwrap();
+        let (dbox, rem) = DescriptionBox::from_slice(&jumbf).unwrap();
         assert!(rem.is_empty());
 
         assert_eq!(
@@ -238,10 +238,10 @@ mod tests {
             "746573742e64657363626f7800" // label
         );
 
-        let (rem, boxx) = DataBox::from_slice(&jumbf).unwrap();
+        let (boxx, rem) = DataBox::from_slice(&jumbf).unwrap();
         assert!(rem.is_empty());
 
-        let (rem, dbox) = DescriptionBox::from_box(boxx).unwrap();
+        let (dbox, rem) = DescriptionBox::from_box(boxx).unwrap();
         assert!(rem.is_empty());
 
         assert_eq!(
@@ -270,10 +270,10 @@ mod tests {
             "00001000" // ID
         );
 
-        let (rem, boxx) = DataBox::from_slice(&jumbf).unwrap();
+        let (boxx, rem) = DataBox::from_slice(&jumbf).unwrap();
         assert!(rem.is_empty());
 
-        let (rem, dbox) = DescriptionBox::from_box(boxx).unwrap();
+        let (dbox, rem) = DescriptionBox::from_box(boxx).unwrap();
         assert!(rem.is_empty());
 
         assert_eq!(
@@ -320,10 +320,10 @@ mod tests {
             "686173682e2e2e2e2e2e2e2e2e2e2e2e" // hash
         );
 
-        let (rem, boxx) = DataBox::from_slice(&jumbf).unwrap();
+        let (boxx, rem) = DataBox::from_slice(&jumbf).unwrap();
         assert!(rem.is_empty());
 
-        let (rem, dbox) = DescriptionBox::from_box(boxx).unwrap();
+        let (dbox, rem) = DescriptionBox::from_box(boxx).unwrap();
         assert!(rem.is_empty());
 
         assert_eq!(
@@ -356,10 +356,10 @@ mod tests {
                     "746520436974792c204e4a227d" // payload (JSON)
         );
 
-        let (rem, boxx) = DataBox::from_slice(&jumbf).unwrap();
+        let (boxx, rem) = DataBox::from_slice(&jumbf).unwrap();
         assert!(rem.is_empty());
 
-        let (rem, dbox) = DescriptionBox::from_box(boxx).unwrap();
+        let (dbox, rem) = DescriptionBox::from_box(boxx).unwrap();
         assert!(rem.is_empty());
 
         assert_eq!(
@@ -424,7 +424,7 @@ mod tests {
             "00" // toggles
         );
 
-        let (rem, dbox) = DescriptionBox::from_slice(&jumbf).unwrap();
+        let (dbox, rem) = DescriptionBox::from_slice(&jumbf).unwrap();
         assert!(rem.is_empty());
 
         assert_eq!(
