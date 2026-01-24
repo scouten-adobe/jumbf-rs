@@ -16,7 +16,7 @@ use std::fmt::{Debug, Formatter};
 use crate::{
     box_type::SUPER_BOX_TYPE,
     debug::*,
-    parser::{DataBox, DescriptionBox, Error, ParseResult},
+    parser::{DataBox, DescriptionBox, Error},
 };
 
 /// A JUMBF superbox contains a description box and zero or more
@@ -46,7 +46,7 @@ impl<'a> SuperBox<'a> {
     ///
     /// The returned object uses zero-copy, and so has the same lifetime as the
     /// input.
-    pub fn from_slice(i: &'a [u8]) -> ParseResult<'a, Self> {
+    pub fn from_slice(i: &'a [u8]) -> Result<(&'a [u8], Self), Error> {
         Self::from_slice_with_depth_limit(i, usize::MAX)
     }
 
@@ -60,7 +60,10 @@ impl<'a> SuperBox<'a> {
     ///
     /// The returned object uses zero-copy, and so has the same lifetime as the
     /// input.
-    pub fn from_slice_with_depth_limit(i: &'a [u8], depth_limit: usize) -> ParseResult<'a, Self> {
+    pub fn from_slice_with_depth_limit(
+        i: &'a [u8],
+        depth_limit: usize,
+    ) -> Result<(&'a [u8], Self), Error> {
         let (i, data_box): (&'a [u8], DataBox<'a>) = DataBox::from_slice(i)?;
         let (_, sbox) = Self::from_data_box_with_depth_limit(&data_box, depth_limit)?;
         Ok((i, sbox))
@@ -75,7 +78,7 @@ impl<'a> SuperBox<'a> {
     /// typically be empty) and the new [`SuperBox`] object.
     ///
     /// Will return an error if the box isn't of `jumb` type.
-    pub fn from_data_box(data_box: &DataBox<'a>) -> ParseResult<'a, Self> {
+    pub fn from_data_box(data_box: &DataBox<'a>) -> Result<(&'a [u8], Self), Error> {
         Self::from_data_box_with_depth_limit(data_box, usize::MAX)
     }
 
@@ -93,7 +96,7 @@ impl<'a> SuperBox<'a> {
     pub fn from_data_box_with_depth_limit(
         data_box: &DataBox<'a>,
         depth_limit: usize,
-    ) -> ParseResult<'a, Self> {
+    ) -> Result<(&'a [u8], Self), Error> {
         if data_box.tbox != SUPER_BOX_TYPE {
             return Err(Error::InvalidSuperBoxType(data_box.tbox));
         }
@@ -198,7 +201,7 @@ impl<'a> Debug for SuperBox<'a> {
 }
 
 // Parse boxes from slice until slice is empty.
-fn boxes_from_slice(i: &[u8]) -> ParseResult<'_, Vec<DataBox<'_>>> {
+fn boxes_from_slice(i: &[u8]) -> Result<(&[u8], Vec<DataBox<'_>>), Error> {
     let mut result: Vec<DataBox> = vec![];
     let mut i = i;
 
