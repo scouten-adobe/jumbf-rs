@@ -19,7 +19,7 @@ use std::{
 use crate::{
     box_type::DESCRIPTION_BOX_TYPE,
     debug::*,
-    parser::{DataBox, Error, ParseResult},
+    parser::{DataBox, Error},
 };
 
 /// A JUMBF description box describes the contents of its superbox.
@@ -63,7 +63,7 @@ impl<'a> DescriptionBox<'a> {
     ///
     /// The returned object uses zero-copy, and so has the same lifetime as the
     /// input.
-    pub fn from_slice(i: &'a [u8]) -> ParseResult<'a, Self> {
+    pub fn from_slice(i: &'a [u8]) -> Result<(&'a [u8], Self), Error> {
         let (i, boxx): (&'a [u8], DataBox<'a>) = DataBox::from_slice(i)?;
         let (_, desc) = Self::from_box(boxx)?;
         Ok((i, desc))
@@ -77,7 +77,7 @@ impl<'a> DescriptionBox<'a> {
     ///
     /// Returns a tuple of the remainder of the input from the box (which should
     /// typically be empty) and the new [`DescriptionBox`] object.
-    pub fn from_box(boxx: DataBox<'a>) -> ParseResult<'a, Self> {
+    pub fn from_box(boxx: DataBox<'a>) -> Result<(&'a [u8], Self), Error> {
         use crate::toggles;
 
         if boxx.tbox != DESCRIPTION_BOX_TYPE {

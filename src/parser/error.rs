@@ -38,9 +38,3 @@ pub enum Error {
     #[error("Incomplete data, needed {0} more bytes")]
     Incomplete(usize),
 }
-
-/// Holds the result of JUMBF parsing functions.
-///
-/// Note that this type is also a [`Result`], so the usual functions (`map`,
-/// `unwrap`, etc.) are available.
-pub type ParseResult<'a, T, E = crate::parser::Error> = Result<(&'a [u8], T), E>;

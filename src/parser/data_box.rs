@@ -15,7 +15,7 @@ use std::fmt::{Debug, Formatter};
 
 use crate::{
     debug::*,
-    parser::{Error, ParseResult, SuperBox},
+    parser::{Error, SuperBox},
     BoxType,
 };
 
@@ -64,7 +64,7 @@ impl<'a> DataBox<'a> {
     ///
     /// The returned object uses zero-copy, and so has the same lifetime as the
     /// input.
-    pub fn from_slice(original: &'a [u8]) -> ParseResult<'a, Self> {
+    pub fn from_slice(original: &'a [u8]) -> Result<(&'a [u8], Self), Error> {
         // Read 4-byte length field.
         if original.len() < 4 {
             return Err(Error::Incomplete(4 - original.len()));
