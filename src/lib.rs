@@ -17,9 +17,6 @@
 #![deny(warnings)]
 #![cfg_attr(feature = "parser", doc = include_str!("../README.md"))]
 
-#[cfg(test)]
-mod tests;
-
 mod box_type;
 pub use box_type::BoxType;
 

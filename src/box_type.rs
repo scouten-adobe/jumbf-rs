@@ -63,3 +63,24 @@ pub const DESCRIPTION_BOX_TYPE: BoxType = BoxType(*b"jumd");
 
 /// Box type for JUMBF super box (`b"jumb"`).
 pub const SUPER_BOX_TYPE: BoxType = BoxType(*b"jumb");
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::expect_used)]
+    #![allow(clippy::panic)]
+    #![allow(clippy::unwrap_used)]
+
+    use crate::BoxType;
+
+    #[test]
+    fn impl_debug() {
+        let x = BoxType([1, 2, 3, 4]);
+        assert_eq!(format!("{x:#?}"), "[0x01, 0x02, 0x03, 0x04]");
+
+        let x = BoxType(*b"abcd");
+        assert_eq!(format!("{x:#?}"), "b\"abcd\"");
+
+        let x = BoxType([b'a', b'b', b'c', 0x7f]);
+        assert_eq!(format!("{x:#?}"), "[0x61, 0x62, 0x63, 0x7f]");
+    }
+}
