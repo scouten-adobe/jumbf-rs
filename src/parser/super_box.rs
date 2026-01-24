@@ -39,21 +39,20 @@ pub struct SuperBox<'a> {
 }
 
 impl<'a> SuperBox<'a> {
-    /// Parse a byte-slice as a JUMBF superbox, and return a tuple of the
-    /// remainder of the input and the parsed super box. Children of this
-    /// superbox which are also superboxes will be parsed recursively without
-    /// limit.
+    /// Parse a byte-slice as a JUMBF superbox, and return a tuple of the parsed
+    /// super box and the remainder of the input. Children of this superbox
+    /// which are also superboxes will be parsed recursively without limit.
     ///
     /// The returned object uses zero-copy, and so has the same lifetime as the
     /// input.
-    pub fn from_slice(i: &'a [u8]) -> Result<(&'a [u8], Self), Error> {
+    pub fn from_slice(i: &'a [u8]) -> Result<(Self, &'a [u8]), Error> {
         Self::from_slice_with_depth_limit(i, usize::MAX)
     }
 
-    /// Parse a byte-slice as a JUMBF superbox, and return a tuple of the
-    /// remainder of the input and the parsed super box. Children of this
-    /// superbox which are also superboxes will be parsed recursively, to a
-    /// limit of `depth_limit` nested boxes.
+    /// Parse a byte-slice as a JUMBF superbox, and return a tuple of the parsed
+    /// super box and the remainder of the input. Children of this superbox
+    /// which are also superboxes will be parsed recursively, to a limit of
+    /// `depth_limit` nested boxes.
     ///
     /// If `depth_limit` is 0, any child superboxes that are found will be
     /// returned as plain [`DataBox`] structs instead.
@@ -63,10 +62,10 @@ impl<'a> SuperBox<'a> {
     pub fn from_slice_with_depth_limit(
         i: &'a [u8],
         depth_limit: usize,
-    ) -> Result<(&'a [u8], Self), Error> {
-        let (i, data_box): (&'a [u8], DataBox<'a>) = DataBox::from_slice(i)?;
-        let (_, sbox) = Self::from_data_box_with_depth_limit(&data_box, depth_limit)?;
-        Ok((i, sbox))
+    ) -> Result<(Self, &'a [u8]), Error> {
+        let (data_box, i) = DataBox::from_slice(i)?;
+        let (sbox, _) = Self::from_data_box_with_depth_limit(&data_box, depth_limit)?;
+        Ok((sbox, i))
     }
 
     /// Re-parse a [`DataBox`] as a JUMBF superbox. Children of this
@@ -74,11 +73,11 @@ impl<'a> SuperBox<'a> {
     /// limit.
     ///
     /// If the box is of `jumb` type and has the correct structure, returns
-    /// a tuple of the remainder of the input from the box (which should
-    /// typically be empty) and the new [`SuperBox`] object.
+    /// a tuple of the new [`SuperBox`] object and the remainder of the input
+    /// from the box (which should typically be empty).
     ///
     /// Will return an error if the box isn't of `jumb` type.
-    pub fn from_data_box(data_box: &DataBox<'a>) -> Result<(&'a [u8], Self), Error> {
+    pub fn from_data_box(data_box: &DataBox<'a>) -> Result<(Self, &'a [u8]), Error> {
         Self::from_data_box_with_depth_limit(data_box, usize::MAX)
     }
 
@@ -87,28 +86,28 @@ impl<'a> SuperBox<'a> {
     /// `depth_limit` nested boxes.
     ///
     /// If the box is of `jumb` type and has the correct structure, returns
-    /// a tuple of the remainder of the input from the box (which should
-    /// typically be empty) and the new [`SuperBox`] object. If `depth_limit` is
-    /// 0, any child superboxes that are found will be returned as plain
+    /// a tuple of the new [`SuperBox`] object and the remainder of the input
+    /// from the box (which should typically be empty). If `depth_limit` is 0,
+    /// any child superboxes that are found will be returned as plain
     /// [`DataBox`] structs instead.
     ///
     /// Will return an error if the box isn't of `jumb` type.
     pub fn from_data_box_with_depth_limit(
         data_box: &DataBox<'a>,
         depth_limit: usize,
-    ) -> Result<(&'a [u8], Self), Error> {
+    ) -> Result<(Self, &'a [u8]), Error> {
         if data_box.tbox != SUPER_BOX_TYPE {
             return Err(Error::InvalidSuperBoxType(data_box.tbox));
         }
 
-        let (i, desc) = DescriptionBox::from_slice(data_box.data)?;
+        let (desc, i) = DescriptionBox::from_slice(data_box.data)?;
 
-        let (i, child_boxes) = boxes_from_slice(i)?;
+        let (child_boxes, i) = boxes_from_slice(i)?;
         let child_boxes = child_boxes
             .into_iter()
             .map(|d| {
                 if d.tbox == SUPER_BOX_TYPE && depth_limit > 0 {
-                    let (_, sbox) = Self::from_data_box_with_depth_limit(&d, depth_limit - 1)?;
+                    let (sbox, _) = Self::from_data_box_with_depth_limit(&d, depth_limit - 1)?;
                     Ok(ChildBox::SuperBox(sbox))
                 } else {
                     Ok(ChildBox::DataBox(d))
@@ -117,12 +116,12 @@ impl<'a> SuperBox<'a> {
             .collect::<Result<Vec<ChildBox<'a>>, Error>>()?;
 
         Ok((
-            i,
             Self {
                 desc,
                 child_boxes,
                 original: data_box.original,
             },
+            i,
         ))
     }
 
@@ -201,17 +200,17 @@ impl<'a> Debug for SuperBox<'a> {
 }
 
 // Parse boxes from slice until slice is empty.
-fn boxes_from_slice(i: &[u8]) -> Result<(&[u8], Vec<DataBox<'_>>), Error> {
+fn boxes_from_slice(i: &[u8]) -> Result<(Vec<DataBox<'_>>, &[u8]), Error> {
     let mut result: Vec<DataBox> = vec![];
     let mut i = i;
 
     while !i.is_empty() {
-        let (x, data_box) = DataBox::from_slice(i)?;
+        let (data_box, x) = DataBox::from_slice(i)?;
         i = x;
         result.push(data_box);
     }
 
-    Ok((i, result))
+    Ok((result, i))
 }
 
 /// This type represents a single box within a superbox,
@@ -277,7 +276,7 @@ mod tests {
                 "746573742e7375706572626f7800" // label
         );
 
-        let (rem, sbox) = SuperBox::from_slice(&jumbf).unwrap();
+        let (sbox, rem) = SuperBox::from_slice(&jumbf).unwrap();
         assert!(rem.is_empty());
 
         assert_eq!(
@@ -320,7 +319,7 @@ mod tests {
                     "746573742e64617461626f7800"
         );
 
-        let (rem, sbox) = SuperBox::from_slice(&jumbf).unwrap();
+        let (sbox, rem) = SuperBox::from_slice(&jumbf).unwrap();
         assert!(rem.is_empty());
 
         assert_eq!(
@@ -372,7 +371,7 @@ mod tests {
                     "00" // toggles
         );
 
-        let (rem, sbox) = SuperBox::from_slice(&jumbf).unwrap();
+        let (sbox, rem) = SuperBox::from_slice(&jumbf).unwrap();
         assert!(rem.is_empty());
 
         assert_eq!(
@@ -442,7 +441,7 @@ mod tests {
             "6332637300110010800000aa00389b717468697320776f756c64206e6f726d616c6c792062652062696e617279207369676e617475726520646174612e2e2e" // data (type unknown)
         );
 
-        let (rem, sbox) = SuperBox::from_slice(&jumbf).unwrap();
+        let (sbox, rem) = SuperBox::from_slice(&jumbf).unwrap();
         assert!(rem.is_empty());
 
         assert_eq!(
@@ -573,7 +572,7 @@ mod tests {
                         "676e617475726520646174612e2e2e"
         );
 
-        let (rem, sbox) = SuperBox::from_slice(&jumbf).unwrap();
+        let (sbox, rem) = SuperBox::from_slice(&jumbf).unwrap();
         assert!(rem.is_empty());
 
         assert_eq!(
@@ -805,7 +804,7 @@ mod tests {
                     "746573742e64617461626f7800" // label = "test.databox"
         );
 
-        let (rem, sbox) = SuperBox::from_slice(&jumbf).unwrap();
+        let (sbox, rem) = SuperBox::from_slice(&jumbf).unwrap();
         assert!(rem.is_empty());
 
         assert_eq!(
@@ -883,7 +882,7 @@ mod tests {
                     "746573742e64617461626f7a00" // label = "test.databoz"
         );
 
-        let (rem, sbox) = SuperBox::from_slice(&jumbf).unwrap();
+        let (sbox, rem) = SuperBox::from_slice(&jumbf).unwrap();
         assert!(rem.is_empty());
 
         assert_eq!(
@@ -954,7 +953,7 @@ mod tests {
     fn parse_c2pa_manifest() {
         let jumbf = include_bytes!("../tests/fixtures/C.c2pa");
 
-        let (rem, sbox) = SuperBox::from_slice(jumbf).unwrap();
+        let (sbox, rem) = SuperBox::from_slice(jumbf).unwrap();
         assert!(rem.is_empty());
 
         assert_eq!(
@@ -1214,7 +1213,7 @@ mod tests {
 
         #[test]
         fn depth_limit_0() {
-            let (rem, sbox) = SuperBox::from_slice_with_depth_limit(&JUMBF, 0).unwrap();
+            let (sbox, rem) = SuperBox::from_slice_with_depth_limit(&JUMBF, 0).unwrap();
             assert!(rem.is_empty());
 
             assert_eq!(
@@ -1254,7 +1253,7 @@ mod tests {
                 }
             );
 
-            let (_, nested_box) = SuperBox::from_data_box(data_box).unwrap();
+            let (nested_box, _) = SuperBox::from_data_box(data_box).unwrap();
 
             assert_eq!(
                 nested_box,
@@ -1376,7 +1375,7 @@ mod tests {
 
         #[test]
         fn depth_limit_1() {
-            let (rem, sbox) = SuperBox::from_slice_with_depth_limit(&JUMBF, 1).unwrap();
+            let (sbox, rem) = SuperBox::from_slice_with_depth_limit(&JUMBF, 1).unwrap();
             assert!(rem.is_empty());
 
             assert_eq!(
@@ -1433,7 +1432,7 @@ mod tests {
 
         #[test]
         fn depth_limit_2() {
-            let (rem, sbox) = SuperBox::from_slice_with_depth_limit(&JUMBF, 2).unwrap();
+            let (sbox, rem) = SuperBox::from_slice_with_depth_limit(&JUMBF, 2).unwrap();
             assert!(rem.is_empty());
 
             assert_eq!(
@@ -1603,7 +1602,7 @@ mod tests {
 
         #[test]
         fn depth_limit_3() {
-            let (rem, sbox) = SuperBox::from_slice_with_depth_limit(&JUMBF, 3).unwrap();
+            let (sbox, rem) = SuperBox::from_slice_with_depth_limit(&JUMBF, 3).unwrap();
             assert!(rem.is_empty());
 
             assert_eq!(

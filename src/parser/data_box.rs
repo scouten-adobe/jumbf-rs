@@ -59,12 +59,12 @@ pub struct DataBox<'a> {
 }
 
 impl<'a> DataBox<'a> {
-    /// Parse a JUMBF box, and return a tuple of the remainder of the input and
-    /// the parsed box.
+    /// Parse a JUMBF box, and return a tuple of the parsed box and
+    /// the remainder of the input.
     ///
     /// The returned object uses zero-copy, and so has the same lifetime as the
     /// input.
-    pub fn from_slice(original: &'a [u8]) -> Result<(&'a [u8], Self), Error> {
+    pub fn from_slice(original: &'a [u8]) -> Result<(Self, &'a [u8]), Error> {
         // Read 4-byte length field.
         if original.len() < 4 {
             return Err(Error::Incomplete(4 - original.len()));
@@ -112,12 +112,12 @@ impl<'a> DataBox<'a> {
         if i.len() >= len {
             let (data, i) = i.split_at(len);
             Ok((
-                i,
                 Self {
                     tbox,
                     data,
                     original: &original[0..original_len],
                 },
+                i,
             ))
         } else {
             Err(Error::Incomplete(len - i.len()))
@@ -149,7 +149,7 @@ impl<'a> DataBox<'a> {
     ///         "6332637300110010800000aa00389b717468697320776f756c64206e6f726d616c6c792062652062696e617279207369676e617475726520646174612e2e2e" // data (type unknown)
     ///     );
     ///
-    /// let (rem, sbox) = SuperBox::from_slice(&jumbf).unwrap();
+    /// let (sbox, rem) = SuperBox::from_slice(&jumbf).unwrap();
     /// assert!(rem.is_empty());
     ///
     /// let uuid_box = sbox.data_box().unwrap();
@@ -206,7 +206,7 @@ mod tests {
             "746573742e64657363626f7800" // label
         );
 
-        let (rem, boxx) = DataBox::from_slice(&jumbf).unwrap();
+        let (boxx, rem) = DataBox::from_slice(&jumbf).unwrap();
         assert!(rem.is_empty());
 
         assert_eq!(
@@ -272,7 +272,7 @@ mod tests {
             "746573742e64657363626f7800" // label
         );
 
-        let (rem, boxx) = DataBox::from_slice(&jumbf).unwrap();
+        let (boxx, rem) = DataBox::from_slice(&jumbf).unwrap();
         assert!(rem.is_empty());
 
         assert_eq!(
@@ -299,7 +299,7 @@ mod tests {
             "746573742e64657363626f7800" // label
         );
 
-        let (rem, boxx) = DataBox::from_slice(&jumbf).unwrap();
+        let (boxx, rem) = DataBox::from_slice(&jumbf).unwrap();
         assert!(rem.is_empty());
 
         assert_eq!(
@@ -386,12 +386,12 @@ mod tests {
                 "6332637300110010800000aa00389b717468697320776f756c64206e6f726d616c6c792062652062696e617279207369676e617475726520646174612e2e2e" // data (type unknown)
             );
 
-            let (rem, sbox_full) = SuperBox::from_slice(&jumbf).unwrap();
+            let (sbox_full, rem) = SuperBox::from_slice(&jumbf).unwrap();
             assert!(rem.is_empty());
 
             assert_eq!(sbox_full.original.len(), 119);
 
-            let (rem, sbox_short) = SuperBox::from_slice(&jumbf[0..118]).unwrap();
+            let (sbox_short, rem) = SuperBox::from_slice(&jumbf[0..118]).unwrap();
 
             assert!(rem.is_empty());
             assert_eq!(sbox_short.original.len(), 118);
@@ -493,7 +493,7 @@ mod tests {
                             "676e617475726520646174612e2e2e"
             );
 
-            let (rem, sbox) = SuperBox::from_slice(&jumbf).unwrap();
+            let (sbox, rem) = SuperBox::from_slice(&jumbf).unwrap();
             assert!(rem.is_empty());
 
             let claim_dbox = sbox
