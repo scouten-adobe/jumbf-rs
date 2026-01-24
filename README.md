@@ -6,10 +6,9 @@ A [JUMBF (ISO/IEC 19566-5:2023)] parser and builder written in pure Rust.
 
 ## Parser
 
-The parser makes extensive use of zero-copy parsing. Since the parsing features of this crate include a dependency on [thiserror], those features are gated on a crate feature named `parser`, which is included by default.
+The parser makes extensive use of zero-copy parsing.
 
 This crate is intentionally minimal in its understanding of box content. Only `jumb` (superbox) and `jumd` (description box) content are understood. The content of all other box types (including other types described in the JUMBF standard) is generally application-specific and thus the meaning of that content is left to the caller.
-
 
 ```rust
 use hex_literal::hex;
@@ -74,14 +73,6 @@ let sbox = SuperBoxBuilder::new(&hex!("00000000000000000000000000000000"))
 
 let mut jumbf = Cursor::new(Vec::<u8>::new());
 sbox.write_jumbf(&mut jumbf).unwrap();
-```
-
-### Reduced dependencies for builder only
-
-The builder can be built by itself and has no third-party crate dependencies in that configuration. If you only need to _build_ JUMBF data structures and want to reduce compile-time overhead, you can disable the `parser` feature by importing this crate as follows:
-
-```toml
-jumbf = { version = "x.x", default-features = false }
 ```
 
 ## Contributions and feedback

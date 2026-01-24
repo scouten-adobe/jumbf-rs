@@ -51,7 +51,7 @@ jobs:
         uses: taiki-e/install-action@cargo-llvm-cov
 
       - name: Generate code coverage
-        run: cargo llvm-cov --lib --all-features --lcov --output-path lcov.info
+        run: cargo llvm-cov --lib --lcov --output-path lcov.info
 
       - name: Filter out tests
         uses: scouten/uncover-tests@v1
@@ -112,7 +112,7 @@ jobs:
 
       - name: Run doc tests (COVERAGE DISABLED)
         run: |
-          cargo test --workspace --all-features --doc
+          cargo test --workspace --doc
 
       # - name: Generate code coverage
       #   env:
@@ -175,7 +175,7 @@ jobs:
       # environment. (A PR to fix this would be welcomed!)
 
       - name: Run unit tests (cross build)
-        run: cross test --lib --all-features --target ${{ matrix.target }}
+        run: cross test --lib --target ${{ matrix.target }}
 
   tests-ios:
     name: Unit tests (iOS simulator)
@@ -226,7 +226,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Run unit tests (cross build)
-        run: cargo dinghy -p auto-ios-aarch64-sim -d ${{ env.device }} test --all-targets --all-features
+        run: cargo dinghy -p auto-ios-aarch64-sim -d ${{ env.device }} test --all-targets
 
   tests-wasm:
     name: Unit tests (Wasm)
@@ -265,7 +265,7 @@ jobs:
         run: cargo binstall -y wasm-bindgen-cli --version 0.2.106
 
       - name: Run Wasm tests
-        run: cargo test -p jumbf --all-features --target wasm32-unknown-unknown
+        run: cargo test -p jumbf --target wasm32-unknown-unknown
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
           WASM_BINDGEN_TEST_TIMEOUT: 60
@@ -317,7 +317,7 @@ jobs:
           CC: clang
           RUST_MIN_STACK: 16777216
         run: |
-          cargo +nightly-2026-01-16 test --target wasm32-wasip2 -p jumbf --all-features -- --no-capture
+          cargo +nightly-2026-01-16 test --target wasm32-wasip2 -p jumbf -- --no-capture
 
   test-direct-minimal-versions:
     name: Unit tests with minimum versions of direct dependencies
@@ -351,7 +351,7 @@ jobs:
 
       - name: Run tests
         run: |
-          cargo +nightly-2025-12-06 test -Z direct-minimal-versions --all-targets --all-features
+          cargo +nightly-2025-12-06 test -Z direct-minimal-versions --all-targets
 
   benchmarks:
     name: Test performance on benchmarks
@@ -384,7 +384,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build the benchmark target(s)
-        run: cargo codspeed build -p jumbf --all-features
+        run: cargo codspeed build -p jumbf
 
       - name: Run the benchmarks
         uses: CodSpeedHQ/action@v4
@@ -446,7 +446,7 @@ jobs:
 
       - name: Run Clippy
         run: |
-          cargo clippy --all-features --all-targets -- -Dwarnings
+          cargo clippy --all-targets -- -Dwarnings
 
   cargo_fmt:
     name: Enforce Rust code format
@@ -615,36 +615,6 @@ jobs:
       - name: Run cargo-udeps
         run: |
           mv ./.github/temp-bin/cargo-udeps /home/runner/.cargo/bin/cargo-udeps
-          cargo udeps --all-targets --all-features
+          cargo udeps --all-targets
           # NOTE: Using pre-built binary as a workaround for
           # https://github.com/aig787/cargo-udeps-action/issues/6.
-
-  test-default-disabled:
-    name: Unit tests with default features disabled
-    if: |
-      github.event_name != 'pull_request' ||
-      github.event.pull_request.author_association == 'OWNER' ||
-      github.event.pull_request.author_association == 'COLLABORATOR' ||
-      github.event.pull_request.author_association == 'MEMBER' ||
-      github.event.pull_request.user.login == 'dependabot[bot]' ||
-      contains(github.event.pull_request.labels.*.name, 'safe to test')
-
-    runs-on: ${{ matrix.os }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-      
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-
-      - name: Run tests
-        run: cargo test --all-targets --no-default-features
