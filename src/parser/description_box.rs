@@ -243,7 +243,7 @@ impl<R: Read + Seek> DescriptionBox<'static, R> {
         if data.len() < 16 {
             return Err(Error::Incomplete(16 - data.len()));
         }
-        let uuid: [u8; 16] = data[0..16].try_into().unwrap();
+        let uuid: [u8; 16] = data[0..16].try_into().map_err(|_| Error::Incomplete(16))?;
         let mut offset = 16;
 
         // Parse toggles.
@@ -291,7 +291,11 @@ impl<R: Read + Seek> DescriptionBox<'static, R> {
             if offset + 32 > data.len() {
                 return Err(Error::Incomplete(32 - (data.len() - offset)));
             }
-            let hash_array: [u8; 32] = data[offset..offset + 32].try_into().unwrap();
+
+            let hash_array: [u8; 32] = data[offset..offset + 32]
+                .try_into()
+                .map_err(|_| Error::Incomplete(32))?;
+
             Some(hash_array)
         } else {
             None
