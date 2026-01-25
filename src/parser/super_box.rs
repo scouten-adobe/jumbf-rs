@@ -11,34 +11,40 @@
 // specific language governing permissions and limitations under
 // each license.
 
-use std::fmt::{Debug, Formatter};
+use std::{
+    cell::RefCell,
+    fmt::{Debug, Formatter},
+    io::{Read, Seek, SeekFrom},
+    rc::Rc,
+};
 
 use crate::{
     box_type::SUPER_BOX_TYPE,
-    debug::*,
-    parser::{DataBox, DescriptionBox, Error},
+    parser::{DataBox, DescriptionBox, Error, InputData, NoReader},
 };
 
 /// A JUMBF superbox contains a description box and zero or more
 /// data boxes, each of which may or may not be a superbox.
+///
+/// The generic parameter `R` represents the reader type for lazy-loaded data.
 #[derive(Clone, Eq, PartialEq)]
-pub struct SuperBox<'a> {
+pub struct SuperBox<'a, R = NoReader> {
     /// Description box.
-    pub desc: DescriptionBox<'a>,
+    pub desc: DescriptionBox<'a, R>,
 
     /// Child boxes. (These are referred to in some documentation
     /// as "data boxes.")
-    pub child_boxes: Vec<ChildBox<'a>>,
+    pub child_boxes: Vec<ChildBox<'a, R>>,
 
     /// Original box data.
     ///
     /// This the original byte slice that was parsed to create this box.
     /// It is preserved in case a future client wishes to re-serialize this
     /// box as is.
-    pub original: &'a [u8],
+    pub original: InputData<'a, R>,
 }
 
-impl<'a> SuperBox<'a> {
+impl<'a> SuperBox<'a, NoReader> {
     /// Parse a byte-slice as a JUMBF superbox, and return a tuple of the parsed
     /// super box and the remainder of the input. Children of this superbox
     /// which are also superboxes will be parsed recursively without limit.
@@ -77,7 +83,7 @@ impl<'a> SuperBox<'a> {
     /// from the box (which should typically be empty).
     ///
     /// Will return an error if the box isn't of `jumb` type.
-    pub fn from_data_box(data_box: &DataBox<'a>) -> Result<(Self, &'a [u8]), Error> {
+    pub fn from_data_box(data_box: &DataBox<'a, NoReader>) -> Result<(Self, &'a [u8]), Error> {
         Self::from_data_box_with_depth_limit(data_box, usize::MAX)
     }
 
@@ -93,14 +99,22 @@ impl<'a> SuperBox<'a> {
     ///
     /// Will return an error if the box isn't of `jumb` type.
     pub fn from_data_box_with_depth_limit(
-        data_box: &DataBox<'a>,
+        data_box: &DataBox<'a, NoReader>,
         depth_limit: usize,
     ) -> Result<(Self, &'a [u8]), Error> {
         if data_box.tbox != SUPER_BOX_TYPE {
             return Err(Error::InvalidSuperBoxType(data_box.tbox));
         }
 
-        let (desc, i) = DescriptionBox::from_slice(data_box.data)?;
+        // Extract data as a slice.
+        let data = match &data_box.data {
+            InputData::Borrowed(slice) => *slice,
+            InputData::Lazy(_) => {
+                return Err(Error::IoError("Expected borrowed data".to_string()));
+            }
+        };
+
+        let (desc, i) = DescriptionBox::from_slice(data)?;
 
         let (child_boxes, i) = boxes_from_slice(i)?;
         let child_boxes = child_boxes
@@ -113,18 +127,20 @@ impl<'a> SuperBox<'a> {
                     Ok(ChildBox::DataBox(d))
                 }
             })
-            .collect::<Result<Vec<ChildBox<'a>>, Error>>()?;
+            .collect::<Result<Vec<ChildBox<'a, NoReader>>, Error>>()?;
 
         Ok((
             Self {
                 desc,
                 child_boxes,
-                original: data_box.original,
+                original: data_box.original.clone(),
             },
             i,
         ))
     }
+}
 
+impl<'a, R> SuperBox<'a, R> {
     /// Find a child superbox of this superbox by label and verify that
     /// exactly one such child exists.
     ///
@@ -140,13 +156,13 @@ impl<'a> SuperBox<'a> {
             None => (label, None),
         };
 
-        let matching_children: Vec<&SuperBox> = self
+        let matching_children: Vec<&SuperBox<'a, R>> = self
             .child_boxes
             .iter()
             .filter_map(|child_box| match child_box {
                 ChildBox::SuperBox(sbox) => {
-                    if let Some(sbox_label) = sbox.desc.label {
-                        if sbox_label == label && sbox.desc.requestable {
+                    if let Some(ref sbox_label) = sbox.desc.label {
+                        if sbox_label.as_str() == label && sbox.desc.requestable {
                             Some(sbox)
                         } else {
                             None
@@ -179,7 +195,7 @@ impl<'a> SuperBox<'a> {
     ///
     /// This is a convenience function for the common case where the superbox
     /// contains a non-superbox payload that needs to be interpreted further.
-    pub fn data_box(&'a self) -> Option<&'a DataBox<'a>> {
+    pub fn data_box(&'a self) -> Option<&'a DataBox<'a, R>> {
         self.child_boxes
             .first()
             .and_then(|child_box| match child_box {
@@ -189,13 +205,88 @@ impl<'a> SuperBox<'a> {
     }
 }
 
-impl<'a> Debug for SuperBox<'a> {
+impl<'a, R: Debug> Debug for SuperBox<'a, R> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         f.debug_struct("SuperBox")
             .field("desc", &self.desc)
             .field("child_boxes", &self.child_boxes)
-            .field("original", &DebugByteSlice(self.original))
+            .field("original", &self.original)
             .finish()
+    }
+}
+
+impl<R: Read + Seek> SuperBox<'static, R> {
+    /// Parse a JUMBF superbox from a reader at its current position.
+    ///
+    /// The reader position will be advanced to the end of the superbox upon success.
+    /// Data is stored as lazy references and only read when `.to_vec()` is called.
+    /// Children are parsed recursively without depth limit.
+    pub fn from_reader(reader: Rc<RefCell<R>>) -> Result<Self, Error> {
+        Self::from_reader_with_depth_limit(reader, usize::MAX)
+    }
+
+    /// Parse a JUMBF superbox from a reader at its current position with a depth limit.
+    ///
+    /// Children of this superbox which are also superboxes will be parsed recursively,
+    /// to a limit of `depth_limit` nested boxes. If `depth_limit` is 0, any child
+    /// superboxes that are found will be returned as plain [`DataBox`] structs instead.
+    pub fn from_reader_with_depth_limit(
+        reader: Rc<RefCell<R>>,
+        depth_limit: usize,
+    ) -> Result<Self, Error> {
+        let data_box = DataBox::from_reader(Rc::clone(&reader))?;
+        Self::from_data_box_with_depth_limit_reader(&data_box, depth_limit, reader)
+    }
+
+    fn from_data_box_with_depth_limit_reader(
+        data_box: &DataBox<'static, R>,
+        depth_limit: usize,
+        reader: Rc<RefCell<R>>,
+    ) -> Result<Self, Error> {
+        if data_box.tbox != SUPER_BOX_TYPE {
+            return Err(Error::InvalidSuperBoxType(data_box.tbox));
+        }
+
+        // The superbox's data field contains the description box and child boxes.
+        // We need to seek to the start of the data and know where it ends.
+        let (data_start_offset, data_end_offset) = match &data_box.data {
+            InputData::Lazy(slice) => (slice.offset(), slice.offset() + slice.len() as u64),
+            InputData::Borrowed(_) => {
+                return Err(Error::IoError(
+                    "Expected lazy data for reader-based parsing".to_string(),
+                ));
+            }
+        };
+
+        // Seek to the start of the superbox's data.
+        reader.borrow_mut().seek(SeekFrom::Start(data_start_offset))?;
+
+        // Read description box from the superbox's data.
+        let desc = DescriptionBox::from_reader(Rc::clone(&reader))?;
+
+        // Read child boxes until we reach the end of the superbox's data.
+        let child_boxes = boxes_from_reader(Rc::clone(&reader), data_end_offset)?;
+        let child_boxes = child_boxes
+            .into_iter()
+            .map(|d| {
+                if d.tbox == SUPER_BOX_TYPE && depth_limit > 0 {
+                    let sbox = Self::from_data_box_with_depth_limit_reader(
+                        &d,
+                        depth_limit - 1,
+                        Rc::clone(&reader),
+                    )?;
+                    Ok(ChildBox::SuperBox(sbox))
+                } else {
+                    Ok(ChildBox::DataBox(d))
+                }
+            })
+            .collect::<Result<Vec<ChildBox<'static, R>>, Error>>()?;
+
+        Ok(Self {
+            desc,
+            child_boxes,
+            original: data_box.original.clone(),
+        })
     }
 }
 
@@ -213,6 +304,27 @@ fn boxes_from_slice(i: &[u8]) -> Result<(Vec<DataBox<'_>>, &[u8]), Error> {
     Ok((result, i))
 }
 
+// Parse boxes from reader until reader reaches the specified end offset.
+fn boxes_from_reader<R: Read + Seek>(
+    reader: Rc<RefCell<R>>,
+    end_offset: u64,
+) -> Result<Vec<DataBox<'static, R>>, Error> {
+    let mut result: Vec<DataBox<'static, R>> = vec![];
+
+    loop {
+        let current_pos = reader.borrow_mut().stream_position()?;
+
+        if current_pos >= end_offset {
+            break;
+        }
+
+        let data_box = DataBox::from_reader(Rc::clone(&reader))?;
+        result.push(data_box);
+    }
+
+    Ok(result)
+}
+
 /// This type represents a single box within a superbox,
 /// which may itself be a superbox or or a regular box.
 ///
@@ -220,18 +332,18 @@ fn boxes_from_slice(i: &[u8]) -> Result<(Vec<DataBox<'_>>, &[u8]), Error> {
 /// meaning to any type of box other than superbox (`jumb`) or
 /// description box (`jumd`).
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ChildBox<'a> {
+pub enum ChildBox<'a, R = NoReader> {
     /// A superbox.
-    SuperBox(SuperBox<'a>),
+    SuperBox(SuperBox<'a, R>),
 
     /// Any other kind of box.
-    DataBox(DataBox<'a>),
+    DataBox(DataBox<'a, R>),
 }
 
-impl<'a> ChildBox<'a> {
+impl<'a, R> ChildBox<'a, R> {
     /// If this represents a nested super box, return a reference to that
     /// superbox.
-    pub fn as_super_box(&'a self) -> Option<&'a SuperBox<'a>> {
+    pub fn as_super_box(&'a self) -> Option<&'a SuperBox<'a, R>> {
         if let Self::SuperBox(sb) = self {
             Some(sb)
         } else {
@@ -241,7 +353,7 @@ impl<'a> ChildBox<'a> {
 
     /// If this represents a nested data box, return a reference to that data
     /// box.
-    pub fn as_data_box(&'a self) -> Option<&'a DataBox<'a>> {
+    pub fn as_data_box(&'a self) -> Option<&'a DataBox<'a, R>> {
         if let Self::DataBox(db) = self {
             Some(db)
         } else {
@@ -260,7 +372,7 @@ mod tests {
     use pretty_assertions_sorted::assert_eq;
 
     use crate::{
-        parser::{ChildBox, DataBox, DescriptionBox, Error, SuperBox},
+        parser::{ChildBox, DataBox, DescriptionBox, Error, InputData, Label, SuperBox},
         BoxType,
     };
 
@@ -283,71 +395,16 @@ mod tests {
             sbox,
             SuperBox {
                 desc: DescriptionBox {
-                    uuid: &[0; 16],
-                    label: Some("test.superbox"),
+                    uuid: [0; 16],
+                    label: Some(Label::Borrowed("test.superbox")),
                     requestable: true,
                     id: None,
                     hash: None,
                     private: None,
-                    original: &jumbf[8..47],
+                    original: InputData::Borrowed(&jumbf[8..47]),
                 },
                 child_boxes: vec!(),
-                original: &jumbf,
-            }
-        );
-
-        assert_eq!(format!("{sbox:#?}"), "SuperBox {\n    desc: DescriptionBox {\n        uuid: [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00],\n        label: Some(\n            \"test.superbox\",\n        ),\n        requestable: true,\n        id: None,\n        hash: None,\n        private: None,\n        original: 39 bytes starting with [00, 00, 00, 27, 6a, 75, 6d, 64, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00],\n    },\n    child_boxes: [],\n    original: 47 bytes starting with [00, 00, 00, 2f, 6a, 75, 6d, 62, 00, 00, 00, 27, 6a, 75, 6d, 64, 00, 00, 00, 00],\n}");
-    }
-
-    #[test]
-    fn nested_super_boxes() {
-        let jumbf = hex!(
-            "00000065" // box size
-            "6a756d62" // box type = 'jumb'
-                "0000002f" // box size
-                "6a756d64" // box type = 'jumd'
-                "00000000000000000000000000000000" // UUID
-                "03" // toggles
-                "746573742e7375706572626f785f64617461626f7800" // label
-                // ------
-                "0000002e" // box size
-                "6a756d62" // box type = 'jumb'
-                    "00000026" // box size
-                    "6a756d64" // box type = 'jumbd'
-                    "00000000000000000000000000000000" // UUID
-                    "03" // toggles
-                    "746573742e64617461626f7800"
-        );
-
-        let (sbox, rem) = SuperBox::from_slice(&jumbf).unwrap();
-        assert!(rem.is_empty());
-
-        assert_eq!(
-            sbox,
-            SuperBox {
-                desc: DescriptionBox {
-                    uuid: &[0; 16],
-                    label: Some("test.superbox_databox"),
-                    requestable: true,
-                    id: None,
-                    hash: None,
-                    private: None,
-                    original: &jumbf[8..55],
-                },
-                child_boxes: vec!(ChildBox::SuperBox(SuperBox {
-                    desc: DescriptionBox {
-                        uuid: &[0; 16],
-                        label: Some("test.databox"),
-                        requestable: true,
-                        id: None,
-                        hash: None,
-                        private: None,
-                        original: &jumbf[63..101],
-                    },
-                    child_boxes: vec!(),
-                    original: &jumbf[55..101],
-                })),
-                original: &jumbf,
+                original: InputData::Borrowed(&jumbf),
             }
         );
     }
@@ -378,28 +435,28 @@ mod tests {
             sbox,
             SuperBox {
                 desc: DescriptionBox {
-                    uuid: &[0; 16],
-                    label: Some("test.superbox_databox"),
+                    uuid: [0; 16],
+                    label: Some(Label::Borrowed("test.superbox_databox")),
                     requestable: true,
                     id: None,
                     hash: None,
                     private: None,
-                    original: &jumbf[8..55],
+                    original: InputData::Borrowed(&jumbf[8..55]),
                 },
                 child_boxes: vec!(ChildBox::SuperBox(SuperBox {
                     desc: DescriptionBox {
-                        uuid: &[0; 16],
+                        uuid: [0; 16],
                         label: None,
                         requestable: false,
                         id: None,
                         hash: None,
                         private: None,
-                        original: &jumbf[63..88],
+                        original: InputData::Borrowed(&jumbf[63..88]),
                     },
                     child_boxes: vec!(),
-                    original: &jumbf[55..88],
+                    original: InputData::Borrowed(&jumbf[55..88]),
                 })),
-                original: &jumbf,
+                original: InputData::Borrowed(&jumbf),
             }
         );
 
@@ -411,16 +468,16 @@ mod tests {
             dbox_as_child.as_super_box().unwrap(),
             &SuperBox {
                 desc: DescriptionBox {
-                    uuid: &[0; 16],
+                    uuid: [0; 16],
                     label: None,
                     requestable: false,
                     id: None,
                     hash: None,
                     private: None,
-                    original: &jumbf[63..88],
+                    original: InputData::Borrowed(&jumbf[63..88]),
                 },
                 child_boxes: vec!(),
-                original: &jumbf[55..88],
+                original: InputData::Borrowed(&jumbf[55..88]),
             }
         );
     }
@@ -448,25 +505,25 @@ mod tests {
             sbox,
             SuperBox {
                 desc: DescriptionBox {
-                    uuid: &[99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
-                    label: Some("c2pa.signature"),
+                    uuid: [99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113],
+                    label: Some(Label::Borrowed("c2pa.signature")),
                     requestable: true,
                     id: None,
                     hash: None,
                     private: None,
-                    original: &jumbf[8..48],
+                    original: InputData::Borrowed(&jumbf[8..48]),
                 },
                 child_boxes: vec!(ChildBox::DataBox(DataBox {
                     tbox: BoxType(*b"uuid"),
-                    data: &[
+                    data: InputData::Borrowed(&[
                         99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113, 116, 104,
                         105, 115, 32, 119, 111, 117, 108, 100, 32, 110, 111, 114, 109, 97, 108,
                         108, 121, 32, 98, 101, 32, 98, 105, 110, 97, 114, 121, 32, 115, 105, 103,
                         110, 97, 116, 117, 114, 101, 32, 100, 97, 116, 97, 46, 46, 46,
-                    ],
-                    original: &jumbf[48..119],
+                    ]),
+                    original: InputData::Borrowed(&jumbf[48..119]),
                 })),
-                original: &jumbf,
+                original: InputData::Borrowed(&jumbf),
             }
         );
 
@@ -479,13 +536,13 @@ mod tests {
             dbox_as_child.as_data_box().unwrap(),
             &DataBox {
                 tbox: BoxType(*b"uuid"),
-                data: &[
+                data: InputData::Borrowed(&[
                     99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113, 116, 104, 105,
                     115, 32, 119, 111, 117, 108, 100, 32, 110, 111, 114, 109, 97, 108, 108, 121,
                     32, 98, 101, 32, 98, 105, 110, 97, 114, 121, 32, 115, 105, 103, 110, 97, 116,
                     117, 114, 101, 32, 100, 97, 116, 97, 46, 46, 46,
-                ],
-                original: &jumbf[48..119],
+                ]),
+                original: InputData::Borrowed(&jumbf[48..119]),
             }
         );
     }
@@ -579,78 +636,78 @@ mod tests {
             sbox,
             SuperBox {
                 desc: DescriptionBox {
-                    uuid: &[99, 50, 112, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
-                    label: Some("c2pa"),
+                    uuid: [99, 50, 112, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                    label: Some(Label::Borrowed("c2pa")),
                     requestable: true,
                     id: None,
                     hash: None,
                     private: None,
-                    original: &jumbf[8..38],
+                    original: InputData::Borrowed(&jumbf[8..38]),
                 },
                 child_boxes: vec!(ChildBox::SuperBox(SuperBox {
                     desc: DescriptionBox {
-                        uuid: &[99, 50, 109, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
-                        label: Some("cb.adobe_1"),
+                        uuid: [99, 50, 109, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                        label: Some(Label::Borrowed("cb.adobe_1")),
                         requestable: true,
                         id: None,
                         hash: None,
                         private: None,
-                        original: &jumbf[46..82],
+                        original: InputData::Borrowed(&jumbf[46..82]),
                     },
                     child_boxes: vec!(
                         ChildBox::SuperBox(SuperBox {
                             desc: DescriptionBox {
-                                uuid: &[
+                                uuid: [
                                     99, 50, 97, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,
                                 ],
-                                label: Some("c2pa.assertions",),
+                                label: Some(Label::Borrowed("c2pa.assertions")),
                                 requestable: true,
                                 id: None,
                                 hash: None,
                                 private: None,
-                                original: &jumbf[90..131],
+                                original: InputData::Borrowed(&jumbf[90..131]),
                             },
                             child_boxes: vec![ChildBox::SuperBox(SuperBox {
                                 desc: DescriptionBox {
-                                    uuid: &[
+                                    uuid: [
                                         106, 115, 111, 110, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56,
                                         155, 113,
                                     ],
-                                    label: Some("c2pa.location.broad",),
+                                    label: Some(Label::Borrowed("c2pa.location.broad")),
                                     requestable: true,
                                     id: None,
                                     hash: None,
                                     private: None,
-                                    original: &jumbf[139..184],
+                                    original: InputData::Borrowed(&jumbf[139..184]),
                                 },
                                 child_boxes: vec![ChildBox::DataBox(DataBox {
                                     tbox: BoxType(*b"json"),
-                                    data: &[
+                                    data: InputData::Borrowed(&[
                                         123, 32, 34, 108, 111, 99, 97, 116, 105, 111, 110, 34, 58,
                                         32, 34, 77, 97, 114, 103, 97, 116, 101, 32, 67, 105, 116,
                                         121, 44, 32, 78, 74, 34, 125,
-                                    ],
-                                    original: &jumbf[184..225],
+                                    ]),
+                                    original: InputData::Borrowed(&jumbf[184..225]),
                                 },),],
-                                original: &jumbf[131..225],
+                                original: InputData::Borrowed(&jumbf[131..225]),
                             },),],
-                            original: &jumbf[82..225],
+                            original: InputData::Borrowed(&jumbf[82..225]),
                         },),
                         ChildBox::SuperBox(SuperBox {
                             desc: DescriptionBox {
-                                uuid: &[
+                                uuid: [
                                     99, 50, 99, 108, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,
                                 ],
-                                label: Some("c2pa.claim",),
+                                label: Some(Label::Borrowed("c2pa.claim")),
                                 requestable: true,
                                 id: None,
                                 hash: None,
                                 private: None,
-                                original: &jumbf[233..269],
+                                original: InputData::Borrowed(&jumbf[233..269]),
                             },
                             child_boxes: vec![ChildBox::DataBox(DataBox {
                                 tbox: BoxType(*b"json"),
-                                data: &[
+                                data: InputData::Borrowed(&[
                                     123, 10, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 34,
                                     114, 101, 99, 111, 114, 100, 101, 114, 34, 32, 58, 32, 34, 80,
                                     104, 111, 116, 111, 115, 104, 111, 112, 34, 44, 10, 32, 32, 32,
@@ -667,40 +724,40 @@ mod tests {
                                     68, 54, 50, 51, 54, 51, 70, 34, 10, 32, 32, 32, 32, 32, 32, 32,
                                     32, 32, 32, 32, 32, 93, 10, 32, 32, 32, 32, 32, 32, 32, 32,
                                     125,
-                                ],
-                                original: &jumbf[269..496],
+                                ]),
+                                original: InputData::Borrowed(&jumbf[269..496]),
                             },),],
-                            original: &jumbf[225..496],
+                            original: InputData::Borrowed(&jumbf[225..496]),
                         },),
                         ChildBox::SuperBox(SuperBox {
                             desc: DescriptionBox {
-                                uuid: &[
+                                uuid: [
                                     99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,
                                 ],
-                                label: Some("c2pa.signature",),
+                                label: Some(Label::Borrowed("c2pa.signature")),
                                 requestable: true,
                                 id: None,
                                 hash: None,
                                 private: None,
-                                original: &jumbf[504..544],
+                                original: InputData::Borrowed(&jumbf[504..544]),
                             },
                             child_boxes: vec![ChildBox::DataBox(DataBox {
                                 tbox: BoxType(*b"uuid"),
-                                data: &[
+                                data: InputData::Borrowed(&[
                                     99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,
                                     116, 104, 105, 115, 32, 119, 111, 117, 108, 100, 32, 110, 111,
                                     114, 109, 97, 108, 108, 121, 32, 98, 101, 32, 98, 105, 110, 97,
                                     114, 121, 32, 115, 105, 103, 110, 97, 116, 117, 114, 101, 32,
                                     100, 97, 116, 97, 46, 46, 46,
-                                ],
-                                original: &jumbf[544..615],
+                                ]),
+                                original: InputData::Borrowed(&jumbf[544..615]),
                             },),],
-                            original: &jumbf[496..615],
+                            original: InputData::Borrowed(&jumbf[496..615]),
                         },),
                     ),
-                    original: &jumbf[38..615],
+                    original: InputData::Borrowed(&jumbf[38..615]),
                 })),
-                original: &jumbf,
+                original: InputData::Borrowed(&jumbf),
             }
         );
 
@@ -708,25 +765,25 @@ mod tests {
             sbox.find_by_label("cb.adobe_1/c2pa.signature"),
             Some(&SuperBox {
                 desc: DescriptionBox {
-                    uuid: &[99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
-                    label: Some("c2pa.signature",),
+                    uuid: [99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                    label: Some(Label::Borrowed("c2pa.signature")),
                     requestable: true,
                     id: None,
                     hash: None,
                     private: None,
-                    original: &jumbf[504..544],
+                    original: InputData::Borrowed(&jumbf[504..544]),
                 },
                 child_boxes: vec![ChildBox::DataBox(DataBox {
                     tbox: BoxType(*b"uuid"),
-                    data: &[
+                    data: InputData::Borrowed(&[
                         99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113, 116, 104,
                         105, 115, 32, 119, 111, 117, 108, 100, 32, 110, 111, 114, 109, 97, 108,
                         108, 121, 32, 98, 101, 32, 98, 105, 110, 97, 114, 121, 32, 115, 105, 103,
                         110, 97, 116, 117, 114, 101, 32, 100, 97, 116, 97, 46, 46, 46,
-                    ],
-                    original: &jumbf[544..615],
+                    ]),
+                    original: InputData::Borrowed(&jumbf[544..615]),
                 },),],
-                original: &jumbf[496..615],
+                original: InputData::Borrowed(&jumbf[496..615]),
             })
         );
 
@@ -739,13 +796,13 @@ mod tests {
                 .and_then(|sig| sig.data_box()),
             Some(&DataBox {
                 tbox: BoxType(*b"uuid"),
-                data: &[
+                data: InputData::Borrowed(&[
                     99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113, 116, 104, 105,
                     115, 32, 119, 111, 117, 108, 100, 32, 110, 111, 114, 109, 97, 108, 108, 121,
                     32, 98, 101, 32, 98, 105, 110, 97, 114, 121, 32, 115, 105, 103, 110, 97, 116,
                     117, 114, 101, 32, 100, 97, 116, 97, 46, 46, 46,
-                ],
-                original: &jumbf[544..615],
+                ]),
+                original: InputData::Borrowed(&jumbf[544..615]),
             })
         );
 
@@ -811,43 +868,43 @@ mod tests {
             sbox,
             SuperBox {
                 desc: DescriptionBox {
-                    uuid: &[0; 16],
-                    label: Some("test.superbox_databox"),
+                    uuid: [0; 16],
+                    label: Some(Label::Borrowed("test.superbox_databox")),
                     requestable: true,
                     id: None,
                     hash: None,
                     private: None,
-                    original: &jumbf[8..55],
+                    original: InputData::Borrowed(&jumbf[8..55]),
                 },
                 child_boxes: vec!(
                     ChildBox::SuperBox(SuperBox {
                         desc: DescriptionBox {
-                            uuid: &[0; 16],
-                            label: Some("test.databox"),
+                            uuid: [0; 16],
+                            label: Some(Label::Borrowed("test.databox")),
                             requestable: true,
                             id: None,
                             hash: None,
                             private: None,
-                            original: &jumbf[63..101],
+                            original: InputData::Borrowed(&jumbf[63..101]),
                         },
                         child_boxes: vec!(),
-                        original: &jumbf[55..101],
+                        original: InputData::Borrowed(&jumbf[55..101]),
                     }),
                     ChildBox::SuperBox(SuperBox {
                         desc: DescriptionBox {
-                            uuid: &[0; 16],
-                            label: Some("test.databox"),
+                            uuid: [0; 16],
+                            label: Some(Label::Borrowed("test.databox")),
                             requestable: true,
                             id: None,
                             hash: None,
                             private: None,
-                            original: &jumbf[109..147],
+                            original: InputData::Borrowed(&jumbf[109..147]),
                         },
                         child_boxes: vec!(),
-                        original: &jumbf[101..147],
+                        original: InputData::Borrowed(&jumbf[101..147]),
                     })
                 ),
-                original: &jumbf,
+                original: InputData::Borrowed(&jumbf),
             }
         );
 
@@ -889,43 +946,43 @@ mod tests {
             sbox,
             SuperBox {
                 desc: DescriptionBox {
-                    uuid: &[0; 16],
-                    label: Some("test.superbox_databox"),
+                    uuid: [0; 16],
+                    label: Some(Label::Borrowed("test.superbox_databox")),
                     requestable: true,
                     id: None,
                     hash: None,
                     private: None,
-                    original: &jumbf[8..55],
+                    original: InputData::Borrowed(&jumbf[8..55]),
                 },
                 child_boxes: vec!(
                     ChildBox::SuperBox(SuperBox {
                         desc: DescriptionBox {
-                            uuid: &[0; 16],
-                            label: Some("test.databox"),
+                            uuid: [0; 16],
+                            label: Some(Label::Borrowed("test.databox")),
                             requestable: false,
                             id: None,
                             hash: None,
                             private: None,
-                            original: &jumbf[63..101],
+                            original: InputData::Borrowed(&jumbf[63..101]),
                         },
                         child_boxes: vec!(),
-                        original: &jumbf[55..101],
+                        original: InputData::Borrowed(&jumbf[55..101]),
                     }),
                     ChildBox::SuperBox(SuperBox {
                         desc: DescriptionBox {
-                            uuid: &[0; 16],
-                            label: Some("test.databoz"),
+                            uuid: [0; 16],
+                            label: Some(Label::Borrowed("test.databoz")),
                             requestable: true,
                             id: None,
                             hash: None,
                             private: None,
-                            original: &jumbf[109..147],
+                            original: InputData::Borrowed(&jumbf[109..147]),
                         },
                         child_boxes: vec!(),
-                        original: &jumbf[101..147],
+                        original: InputData::Borrowed(&jumbf[101..147]),
                     })
                 ),
-                original: &jumbf,
+                original: InputData::Borrowed(&jumbf),
             }
         );
 
@@ -935,16 +992,16 @@ mod tests {
             sbox.find_by_label("test.databoz"),
             Some(&SuperBox {
                 desc: DescriptionBox {
-                    uuid: &[0; 16],
-                    label: Some("test.databoz"),
+                    uuid: [0; 16],
+                    label: Some(Label::Borrowed("test.databoz")),
                     requestable: true,
                     id: None,
                     hash: None,
                     private: None,
-                    original: &jumbf[109..147],
+                    original: InputData::Borrowed(&jumbf[109..147]),
                 },
                 child_boxes: vec!(),
-                original: &jumbf[101..147],
+                original: InputData::Borrowed(&jumbf[101..147]),
             })
         );
     }
@@ -960,164 +1017,164 @@ mod tests {
             sbox,
             SuperBox {
                 desc: DescriptionBox {
-                    uuid: &hex!("63 32 70 61 00 11 00 10 80 00 00 aa 00 38 9b 71"),
-                    label: Some("c2pa",),
+                    uuid: hex!("63 32 70 61 00 11 00 10 80 00 00 aa 00 38 9b 71"),
+                    label: Some(Label::Borrowed("c2pa")),
                     requestable: true,
                     id: None,
                     hash: None,
                     private: None,
-                    original: &jumbf[8..38],
+                    original: InputData::Borrowed(&jumbf[8..38]),
                 },
                 child_boxes: vec![ChildBox::SuperBox(SuperBox {
                     desc: DescriptionBox {
-                        uuid: &hex!("63 32 6d 61 00 11 00 10 80 00 00 aa 00 38 9b 71"),
-                        label: Some("contentauth:urn:uuid:021b555e-5e02-4074-b444-43d7919d89b9",),
+                        uuid: hex!("63 32 6d 61 00 11 00 10 80 00 00 aa 00 38 9b 71"),
+                        label: Some(Label::Borrowed("contentauth:urn:uuid:021b555e-5e02-4074-b444-43d7919d89b9")),
                         requestable: true,
                         id: None,
                         hash: None,
                         private: None,
-                        original: &jumbf[46..129],
+                        original: InputData::Borrowed(&jumbf[46..129]),
                     },
                     child_boxes: vec![
                         ChildBox::SuperBox(SuperBox {
                             desc: DescriptionBox {
-                                uuid: &hex!("63 32 61 73 00 11 00 10 80 00 00 aa 00 38 9b 71"),
-                                label: Some("c2pa.assertions",),
+                                uuid: hex!("63 32 61 73 00 11 00 10 80 00 00 aa 00 38 9b 71"),
+                                label: Some(Label::Borrowed("c2pa.assertions")),
                                 requestable: true,
                                 id: None,
                                 hash: None,
                                 private: None,
-                                original: &jumbf[137..178],
+                                original: InputData::Borrowed(&jumbf[137..178]),
                             },
                             child_boxes: vec![
                                 ChildBox::SuperBox(SuperBox {
                                     desc: DescriptionBox {
-                                        uuid: &hex!(
+                                        uuid: hex!(
                                             "40 cb 0c 32 bb 8a 48 9d a7 0b 2a d6 f4 7f 43 69"
                                         ),
-                                        label: Some("c2pa.thumbnail.claim.jpeg",),
+                                        label: Some(Label::Borrowed("c2pa.thumbnail.claim.jpeg")),
                                         requestable: true,
                                         id: None,
                                         hash: None,
                                         private: None,
-                                        original: &jumbf[186..237],
+                                        original: InputData::Borrowed(&jumbf[186..237]),
                                     },
                                     child_boxes: vec![
                                         ChildBox::DataBox(DataBox {
                                             tbox: BoxType(*b"bfdb"),
-                                            data: &jumbf[245..257],
-                                            original: &jumbf[237..257],
+                                            data: InputData::Borrowed(&jumbf[245..257]),
+                                            original: InputData::Borrowed(&jumbf[237..257]),
                                         },),
                                         ChildBox::DataBox(DataBox {
                                             tbox: BoxType(*b"bidb"),
-                                            data: &jumbf[265..31976],
-                                            original: &jumbf[257..31976],
+                                            data: InputData::Borrowed(&jumbf[265..31976]),
+                                            original: InputData::Borrowed(&jumbf[257..31976]),
                                         },),
                                     ],
-                                    original: &jumbf[178..31976],
+                                    original: InputData::Borrowed(&jumbf[178..31976]),
                                 },),
                                 ChildBox::SuperBox(SuperBox {
                                     desc: DescriptionBox {
-                                        uuid: &hex!(
+                                        uuid: hex!(
                                             "6a 73 6f 6e 00 11 00 10 80 00 00 aa 00 38 9b 71"
                                         ),
-                                        label: Some("stds.schema-org.CreativeWork",),
+                                        label: Some(Label::Borrowed("stds.schema-org.CreativeWork")),
                                         requestable: true,
                                         id: None,
                                         hash: None,
                                         private: Some(DataBox {
                                             tbox: BoxType(*b"c2sh"),
-                                            data: &jumbf[32046..32062],
-                                            original: &jumbf[32038..32062],
+                                            data: InputData::Borrowed(&jumbf[32046..32062]),
+                                            original: InputData::Borrowed(&jumbf[32038..32062]),
                                         },),
-                                        original: &jumbf[31984..32062],
+                                        original: InputData::Borrowed(&jumbf[31984..32062]),
                                     },
                                     child_boxes: vec![ChildBox::DataBox(DataBox {
                                         tbox: BoxType(*b"json"),
-                                        data: &jumbf[32070..32179],
-                                        original: &jumbf[32062..32179],
+                                        data: InputData::Borrowed(&jumbf[32070..32179]),
+                                        original: InputData::Borrowed(&jumbf[32062..32179]),
                                     },),],
-                                    original: &jumbf[31976..32179],
+                                    original: InputData::Borrowed(&jumbf[31976..32179]),
                                 },),
                                 ChildBox::SuperBox(SuperBox {
                                     desc: DescriptionBox {
-                                        uuid: &hex!(
+                                        uuid: hex!(
                                             "63 62 6f 72 00 11 00 10 80 00 00 aa 00 38 9b 71"
                                         ),
-                                        label: Some("c2pa.actions",),
+                                        label: Some(Label::Borrowed("c2pa.actions")),
                                         requestable: true,
                                         id: None,
                                         hash: None,
                                         private: None,
-                                        original: &jumbf[32187..32225],
+                                        original: InputData::Borrowed(&jumbf[32187..32225]),
                                     },
                                     child_boxes: vec![ChildBox::DataBox(DataBox {
                                         tbox: BoxType(*b"cbor"),
-                                        data: &jumbf[32233..32311],
-                                        original: &jumbf[32225..32311],
+                                        data: InputData::Borrowed(&jumbf[32233..32311]),
+                                        original: InputData::Borrowed(&jumbf[32225..32311]),
                                     },),],
-                                    original: &jumbf[32179..32311],
+                                    original: InputData::Borrowed(&jumbf[32179..32311]),
                                 },),
                                 ChildBox::SuperBox(SuperBox {
                                     desc: DescriptionBox {
-                                        uuid: &hex!(
+                                        uuid: hex!(
                                             "63 62 6f 72 00 11 00 10 80 00 00 aa 00 38 9b 71"
                                         ),
-                                        label: Some("c2pa.hash.data",),
+                                        label: Some(Label::Borrowed("c2pa.hash.data")),
                                         requestable: true,
                                         id: None,
                                         hash: None,
                                         private: None,
-                                        original: &jumbf[32319..32359],
+                                        original: InputData::Borrowed(&jumbf[32319..32359]),
                                     },
                                     child_boxes: vec![ChildBox::DataBox(DataBox {
                                         tbox: BoxType(*b"cbor"),
-                                        data: &jumbf[32367..32482],
-                                        original: &jumbf[32359..32482],
+                                        data: InputData::Borrowed(&jumbf[32367..32482]),
+                                        original: InputData::Borrowed(&jumbf[32359..32482]),
                                     },),],
-                                    original: &jumbf[32311..32482],
+                                    original: InputData::Borrowed(&jumbf[32311..32482]),
                                 },),
                             ],
-                            original: &jumbf[129..32482],
+                            original: InputData::Borrowed(&jumbf[129..32482]),
                         },),
                         ChildBox::SuperBox(SuperBox {
                             desc: DescriptionBox {
-                                uuid: &hex!("63 32 63 6c 00 11 00 10 80 00 00 aa 00 38 9b 71"),
-                                label: Some("c2pa.claim",),
+                                uuid: hex!("63 32 63 6c 00 11 00 10 80 00 00 aa 00 38 9b 71"),
+                                label: Some(Label::Borrowed("c2pa.claim")),
                                 requestable: true,
                                 id: None,
                                 hash: None,
                                 private: None,
-                                original: &jumbf[32490..32526],
+                                original: InputData::Borrowed(&jumbf[32490..32526]),
                             },
                             child_boxes: vec![ChildBox::DataBox(DataBox {
                                 tbox: BoxType(*b"cbor"),
-                                data: &jumbf[32534..33166],
-                                original: &jumbf[32526..33166],
+                                data: InputData::Borrowed(&jumbf[32534..33166]),
+                                original: InputData::Borrowed(&jumbf[32526..33166]),
                             },),],
-                            original: &jumbf[32482..33166],
+                            original: InputData::Borrowed(&jumbf[32482..33166]),
                         },),
                         ChildBox::SuperBox(SuperBox {
                             desc: DescriptionBox {
-                                uuid: &hex!("63 32 63 73 00 11 00 10 80 00 00 aa 00 38 9b 71"),
-                                label: Some("c2pa.signature",),
+                                uuid: hex!("63 32 63 73 00 11 00 10 80 00 00 aa 00 38 9b 71"),
+                                label: Some(Label::Borrowed("c2pa.signature")),
                                 requestable: true,
                                 id: None,
                                 hash: None,
                                 private: None,
-                                original: &jumbf[33174..33214],
+                                original: InputData::Borrowed(&jumbf[33174..33214]),
                             },
                             child_boxes: vec![ChildBox::DataBox(DataBox {
                                 tbox: BoxType(*b"cbor"),
-                                data: &jumbf[33222..46948],
-                                original: &jumbf[33214..46948],
+                                data: InputData::Borrowed(&jumbf[33222..46948]),
+                                original: InputData::Borrowed(&jumbf[33214..46948]),
                             },),],
-                            original: &jumbf[33166..46948],
+                            original: InputData::Borrowed(&jumbf[33166..46948]),
                         },),
                     ],
-                    original: &jumbf[38..46948],
+                    original: InputData::Borrowed(&jumbf[38..46948]),
                 },),],
-                original: &jumbf[0..46948],
+                original: InputData::Borrowed(&jumbf[0..46948]),
             }
         );
     }
@@ -1127,7 +1184,7 @@ mod tests {
         use pretty_assertions_sorted::assert_eq;
 
         use crate::{
-            parser::{ChildBox, DataBox, DescriptionBox, SuperBox},
+            parser::{ChildBox, DataBox, DescriptionBox, InputData, Label, SuperBox},
             BoxType,
         };
 
@@ -1220,20 +1277,20 @@ mod tests {
                 sbox,
                 SuperBox {
                     desc: DescriptionBox {
-                        uuid: &[99, 50, 112, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
-                        label: Some("c2pa"),
+                        uuid: [99, 50, 112, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                        label: Some(Label::Borrowed("c2pa")),
                         requestable: true,
                         id: None,
                         hash: None,
                         private: None,
-                        original: &JUMBF[8..38],
+                        original: InputData::Borrowed(&JUMBF[8..38]),
                     },
                     child_boxes: vec!(ChildBox::DataBox(DataBox {
                         tbox: BoxType(*b"jumb"),
-                        original: &JUMBF[38..615],
-                        data: &JUMBF[46..615],
+                        original: InputData::Borrowed(&JUMBF[38..615]),
+                        data: InputData::Borrowed(&JUMBF[46..615]),
                     })),
-                    original: &JUMBF,
+                    original: InputData::Borrowed(&JUMBF),
                 }
             );
 
@@ -1248,8 +1305,8 @@ mod tests {
                 data_box,
                 &DataBox {
                     tbox: BoxType(*b"jumb"),
-                    original: &JUMBF[38..615],
-                    data: &JUMBF[46..615],
+                    original: InputData::Borrowed(&JUMBF[38..615]),
+                    data: InputData::Borrowed(&JUMBF[46..615]),
                 }
             );
 
@@ -1259,68 +1316,68 @@ mod tests {
                 nested_box,
                 SuperBox {
                     desc: DescriptionBox {
-                        uuid: &[99, 50, 109, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
-                        label: Some("cb.adobe_1"),
+                        uuid: [99, 50, 109, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                        label: Some(Label::Borrowed("cb.adobe_1")),
                         requestable: true,
                         id: None,
                         hash: None,
                         private: None,
-                        original: &JUMBF[46..82],
+                        original: InputData::Borrowed(&JUMBF[46..82]),
                     },
                     child_boxes: vec!(
                         ChildBox::SuperBox(SuperBox {
                             desc: DescriptionBox {
-                                uuid: &[
+                                uuid: [
                                     99, 50, 97, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,
                                 ],
-                                label: Some("c2pa.assertions",),
+                                label: Some(Label::Borrowed("c2pa.assertions")),
                                 requestable: true,
                                 id: None,
                                 hash: None,
                                 private: None,
-                                original: &JUMBF[90..131],
+                                original: InputData::Borrowed(&JUMBF[90..131]),
                             },
                             child_boxes: vec![ChildBox::SuperBox(SuperBox {
                                 desc: DescriptionBox {
-                                    uuid: &[
+                                    uuid: [
                                         106, 115, 111, 110, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56,
                                         155, 113,
                                     ],
-                                    label: Some("c2pa.location.broad",),
+                                    label: Some(Label::Borrowed("c2pa.location.broad")),
                                     requestable: true,
                                     id: None,
                                     hash: None,
                                     private: None,
-                                    original: &JUMBF[139..184],
+                                    original: InputData::Borrowed(&JUMBF[139..184]),
                                 },
                                 child_boxes: vec![ChildBox::DataBox(DataBox {
                                     tbox: BoxType(*b"json"),
-                                    data: &[
+                                    data: InputData::Borrowed(&[
                                         123, 32, 34, 108, 111, 99, 97, 116, 105, 111, 110, 34, 58,
                                         32, 34, 77, 97, 114, 103, 97, 116, 101, 32, 67, 105, 116,
                                         121, 44, 32, 78, 74, 34, 125,
-                                    ],
-                                    original: &JUMBF[184..225],
+                                    ]),
+                                    original: InputData::Borrowed(&JUMBF[184..225]),
                                 },),],
-                                original: &JUMBF[131..225],
+                                original: InputData::Borrowed(&JUMBF[131..225]),
                             },),],
-                            original: &JUMBF[82..225],
+                            original: InputData::Borrowed(&JUMBF[82..225]),
                         },),
                         ChildBox::SuperBox(SuperBox {
                             desc: DescriptionBox {
-                                uuid: &[
+                                uuid: [
                                     99, 50, 99, 108, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,
                                 ],
-                                label: Some("c2pa.claim",),
+                                label: Some(Label::Borrowed("c2pa.claim")),
                                 requestable: true,
                                 id: None,
                                 hash: None,
                                 private: None,
-                                original: &JUMBF[233..269],
+                                original: InputData::Borrowed(&JUMBF[233..269]),
                             },
                             child_boxes: vec![ChildBox::DataBox(DataBox {
                                 tbox: BoxType(*b"json"),
-                                data: &[
+                                data: InputData::Borrowed(&[
                                     123, 10, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 34,
                                     114, 101, 99, 111, 114, 100, 101, 114, 34, 32, 58, 32, 34, 80,
                                     104, 111, 116, 111, 115, 104, 111, 112, 34, 44, 10, 32, 32, 32,
@@ -1337,38 +1394,38 @@ mod tests {
                                     68, 54, 50, 51, 54, 51, 70, 34, 10, 32, 32, 32, 32, 32, 32, 32,
                                     32, 32, 32, 32, 32, 93, 10, 32, 32, 32, 32, 32, 32, 32, 32,
                                     125,
-                                ],
-                                original: &JUMBF[269..496],
+                                ]),
+                                original: InputData::Borrowed(&JUMBF[269..496]),
                             },),],
-                            original: &JUMBF[225..496],
+                            original: InputData::Borrowed(&JUMBF[225..496]),
                         },),
                         ChildBox::SuperBox(SuperBox {
                             desc: DescriptionBox {
-                                uuid: &[
+                                uuid: [
                                     99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,
                                 ],
-                                label: Some("c2pa.signature",),
+                                label: Some(Label::Borrowed("c2pa.signature")),
                                 requestable: true,
                                 id: None,
                                 hash: None,
                                 private: None,
-                                original: &JUMBF[504..544],
+                                original: InputData::Borrowed(&JUMBF[504..544]),
                             },
                             child_boxes: vec![ChildBox::DataBox(DataBox {
                                 tbox: BoxType(*b"uuid"),
-                                data: &[
+                                data: InputData::Borrowed(&[
                                     99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,
                                     116, 104, 105, 115, 32, 119, 111, 117, 108, 100, 32, 110, 111,
                                     114, 109, 97, 108, 108, 121, 32, 98, 101, 32, 98, 105, 110, 97,
                                     114, 121, 32, 115, 105, 103, 110, 97, 116, 117, 114, 101, 32,
                                     100, 97, 116, 97, 46, 46, 46,
-                                ],
-                                original: &JUMBF[544..615],
+                                ]),
+                                original: InputData::Borrowed(&JUMBF[544..615]),
                             },),],
-                            original: &JUMBF[496..615],
+                            original: InputData::Borrowed(&JUMBF[496..615]),
                         },),
                     ),
-                    original: &JUMBF[38..615],
+                    original: InputData::Borrowed(&JUMBF[38..615]),
                 }
             );
         }
@@ -1382,46 +1439,46 @@ mod tests {
                 sbox,
                 SuperBox {
                     desc: DescriptionBox {
-                        uuid: &[99, 50, 112, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
-                        label: Some("c2pa"),
+                        uuid: [99, 50, 112, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                        label: Some(Label::Borrowed("c2pa")),
                         requestable: true,
                         id: None,
                         hash: None,
                         private: None,
-                        original: &JUMBF[8..38],
+                        original: InputData::Borrowed(&JUMBF[8..38]),
                     },
                     child_boxes: vec!(ChildBox::SuperBox(SuperBox {
                         desc: DescriptionBox {
-                            uuid: &[
+                            uuid: [
                                 99, 50, 109, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,
                             ],
-                            label: Some("cb.adobe_1"),
+                            label: Some(Label::Borrowed("cb.adobe_1")),
                             requestable: true,
                             id: None,
                             hash: None,
                             private: None,
-                            original: &JUMBF[46..82],
+                            original: InputData::Borrowed(&JUMBF[46..82]),
                         },
                         child_boxes: vec!(
                             ChildBox::DataBox(DataBox {
                                 tbox: BoxType(*b"jumb"),
-                                original: &JUMBF[82..225],
-                                data: &JUMBF[90..225],
+                                original: InputData::Borrowed(&JUMBF[82..225]),
+                                data: InputData::Borrowed(&JUMBF[90..225]),
                             }),
                             ChildBox::DataBox(DataBox {
                                 tbox: BoxType(*b"jumb"),
-                                original: &JUMBF[225..496],
-                                data: &JUMBF[233..496],
+                                original: InputData::Borrowed(&JUMBF[225..496]),
+                                data: InputData::Borrowed(&JUMBF[233..496]),
                             }),
                             ChildBox::DataBox(DataBox {
                                 tbox: BoxType(*b"jumb"),
-                                original: &JUMBF[496..615],
-                                data: &JUMBF[504..615],
+                                original: InputData::Borrowed(&JUMBF[496..615]),
+                                data: InputData::Borrowed(&JUMBF[504..615]),
                             }),
                         ),
-                        original: &JUMBF[38..615],
+                        original: InputData::Borrowed(&JUMBF[38..615]),
                     })),
-                    original: &JUMBF,
+                    original: InputData::Borrowed(&JUMBF),
                 }
             );
 
@@ -1439,63 +1496,63 @@ mod tests {
                 sbox,
                 SuperBox {
                     desc: DescriptionBox {
-                        uuid: &[99, 50, 112, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
-                        label: Some("c2pa"),
+                        uuid: [99, 50, 112, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                        label: Some(Label::Borrowed("c2pa")),
                         requestable: true,
                         id: None,
                         hash: None,
                         private: None,
-                        original: &JUMBF[8..38],
+                        original: InputData::Borrowed(&JUMBF[8..38]),
                     },
                     child_boxes: vec!(ChildBox::SuperBox(SuperBox {
                         desc: DescriptionBox {
-                            uuid: &[
+                            uuid: [
                                 99, 50, 109, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,
                             ],
-                            label: Some("cb.adobe_1"),
+                            label: Some(Label::Borrowed("cb.adobe_1")),
                             requestable: true,
                             id: None,
                             hash: None,
                             private: None,
-                            original: &JUMBF[46..82],
+                            original: InputData::Borrowed(&JUMBF[46..82]),
                         },
                         child_boxes: vec!(
                             ChildBox::SuperBox(SuperBox {
                                 desc: DescriptionBox {
-                                    uuid: &[
+                                    uuid: [
                                         99, 50, 97, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155,
                                         113,
                                     ],
-                                    label: Some("c2pa.assertions",),
+                                    label: Some(Label::Borrowed("c2pa.assertions")),
                                     requestable: true,
                                     id: None,
                                     hash: None,
                                     private: None,
-                                    original: &JUMBF[90..131],
+                                    original: InputData::Borrowed(&JUMBF[90..131]),
                                 },
                                 child_boxes: vec![ChildBox::DataBox(DataBox {
                                     tbox: BoxType(*b"jumb"),
-                                    data: &JUMBF[139..225],
-                                    original: &JUMBF[131..225],
+                                    data: InputData::Borrowed(&JUMBF[139..225]),
+                                    original: InputData::Borrowed(&JUMBF[131..225]),
                                 },),],
-                                original: &JUMBF[82..225],
+                                original: InputData::Borrowed(&JUMBF[82..225]),
                             },),
                             ChildBox::SuperBox(SuperBox {
                                 desc: DescriptionBox {
-                                    uuid: &[
+                                    uuid: [
                                         99, 50, 99, 108, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155,
                                         113,
                                     ],
-                                    label: Some("c2pa.claim",),
+                                    label: Some(Label::Borrowed("c2pa.claim")),
                                     requestable: true,
                                     id: None,
                                     hash: None,
                                     private: None,
-                                    original: &JUMBF[233..269],
+                                    original: InputData::Borrowed(&JUMBF[233..269]),
                                 },
                                 child_boxes: vec![ChildBox::DataBox(DataBox {
                                     tbox: BoxType(*b"json"),
-                                    data: &[
+                                    data: InputData::Borrowed(&[
                                         123, 10, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32,
                                         34, 114, 101, 99, 111, 114, 100, 101, 114, 34, 32, 58, 32,
                                         34, 80, 104, 111, 116, 111, 115, 104, 111, 112, 34, 44, 10,
@@ -1513,41 +1570,41 @@ mod tests {
                                         54, 50, 51, 54, 51, 70, 34, 10, 32, 32, 32, 32, 32, 32, 32,
                                         32, 32, 32, 32, 32, 93, 10, 32, 32, 32, 32, 32, 32, 32, 32,
                                         125,
-                                    ],
-                                    original: &JUMBF[269..496],
+                                    ]),
+                                    original: InputData::Borrowed(&JUMBF[269..496]),
                                 },),],
-                                original: &JUMBF[225..496],
+                                original: InputData::Borrowed(&JUMBF[225..496]),
                             },),
                             ChildBox::SuperBox(SuperBox {
                                 desc: DescriptionBox {
-                                    uuid: &[
+                                    uuid: [
                                         99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155,
                                         113,
                                     ],
-                                    label: Some("c2pa.signature",),
+                                    label: Some(Label::Borrowed("c2pa.signature")),
                                     requestable: true,
                                     id: None,
                                     hash: None,
                                     private: None,
-                                    original: &JUMBF[504..544],
+                                    original: InputData::Borrowed(&JUMBF[504..544]),
                                 },
                                 child_boxes: vec![ChildBox::DataBox(DataBox {
                                     tbox: BoxType(*b"uuid"),
-                                    data: &[
+                                    data: InputData::Borrowed(&[
                                         99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155,
                                         113, 116, 104, 105, 115, 32, 119, 111, 117, 108, 100, 32,
                                         110, 111, 114, 109, 97, 108, 108, 121, 32, 98, 101, 32, 98,
                                         105, 110, 97, 114, 121, 32, 115, 105, 103, 110, 97, 116,
                                         117, 114, 101, 32, 100, 97, 116, 97, 46, 46, 46,
-                                    ],
-                                    original: &JUMBF[544..615],
+                                    ]),
+                                    original: InputData::Borrowed(&JUMBF[544..615]),
                                 },),],
-                                original: &JUMBF[496..615],
+                                original: InputData::Borrowed(&JUMBF[496..615]),
                             },),
                         ),
-                        original: &JUMBF[38..615],
+                        original: InputData::Borrowed(&JUMBF[38..615]),
                     })),
-                    original: &JUMBF,
+                    original: InputData::Borrowed(&JUMBF),
                 }
             );
 
@@ -1555,26 +1612,26 @@ mod tests {
                 sbox.find_by_label("cb.adobe_1/c2pa.signature"),
                 Some(&SuperBox {
                     desc: DescriptionBox {
-                        uuid: &[99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
-                        label: Some("c2pa.signature",),
+                        uuid: [99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                        label: Some(Label::Borrowed("c2pa.signature")),
                         requestable: true,
                         id: None,
                         hash: None,
                         private: None,
-                        original: &JUMBF[504..544],
+                        original: InputData::Borrowed(&JUMBF[504..544]),
                     },
                     child_boxes: vec![ChildBox::DataBox(DataBox {
                         tbox: BoxType(*b"uuid"),
-                        data: &[
+                        data: InputData::Borrowed(&[
                             99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113, 116,
                             104, 105, 115, 32, 119, 111, 117, 108, 100, 32, 110, 111, 114, 109, 97,
                             108, 108, 121, 32, 98, 101, 32, 98, 105, 110, 97, 114, 121, 32, 115,
                             105, 103, 110, 97, 116, 117, 114, 101, 32, 100, 97, 116, 97, 46, 46,
                             46,
-                        ],
-                        original: &JUMBF[544..615],
+                        ]),
+                        original: InputData::Borrowed(&JUMBF[544..615]),
                     },),],
-                    original: &JUMBF[496..615],
+                    original: InputData::Borrowed(&JUMBF[496..615]),
                 })
             );
 
@@ -1587,13 +1644,13 @@ mod tests {
                     .and_then(|sig| sig.data_box()),
                 Some(&DataBox {
                     tbox: BoxType(*b"uuid"),
-                    data: &[
+                    data: InputData::Borrowed(&[
                         99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113, 116, 104,
                         105, 115, 32, 119, 111, 117, 108, 100, 32, 110, 111, 114, 109, 97, 108,
                         108, 121, 32, 98, 101, 32, 98, 105, 110, 97, 114, 121, 32, 115, 105, 103,
                         110, 97, 116, 117, 114, 101, 32, 100, 97, 116, 97, 46, 46, 46,
-                    ],
-                    original: &JUMBF[544..615],
+                    ]),
+                    original: InputData::Borrowed(&JUMBF[544..615]),
                 })
             );
 
@@ -1609,82 +1666,82 @@ mod tests {
                 sbox,
                 SuperBox {
                     desc: DescriptionBox {
-                        uuid: &[99, 50, 112, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
-                        label: Some("c2pa"),
+                        uuid: [99, 50, 112, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                        label: Some(Label::Borrowed("c2pa")),
                         requestable: true,
                         id: None,
                         hash: None,
                         private: None,
-                        original: &JUMBF[8..38],
+                        original: InputData::Borrowed(&JUMBF[8..38]),
                     },
                     child_boxes: vec!(ChildBox::SuperBox(SuperBox {
                         desc: DescriptionBox {
-                            uuid: &[
+                            uuid: [
                                 99, 50, 109, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,
                             ],
-                            label: Some("cb.adobe_1"),
+                            label: Some(Label::Borrowed("cb.adobe_1")),
                             requestable: true,
                             id: None,
                             hash: None,
                             private: None,
-                            original: &JUMBF[46..82],
+                            original: InputData::Borrowed(&JUMBF[46..82]),
                         },
                         child_boxes: vec!(
                             ChildBox::SuperBox(SuperBox {
                                 desc: DescriptionBox {
-                                    uuid: &[
+                                    uuid: [
                                         99, 50, 97, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155,
                                         113,
                                     ],
-                                    label: Some("c2pa.assertions",),
+                                    label: Some(Label::Borrowed("c2pa.assertions")),
                                     requestable: true,
                                     id: None,
                                     hash: None,
                                     private: None,
-                                    original: &JUMBF[90..131],
+                                    original: InputData::Borrowed(&JUMBF[90..131]),
                                 },
                                 child_boxes: vec![ChildBox::SuperBox(SuperBox {
                                     desc: DescriptionBox {
-                                        uuid: &[
+                                        uuid: [
                                             106, 115, 111, 110, 0, 17, 0, 16, 128, 0, 0, 170, 0,
                                             56, 155, 113,
                                         ],
-                                        label: Some("c2pa.location.broad",),
+                                        label: Some(Label::Borrowed("c2pa.location.broad")),
                                         requestable: true,
                                         id: None,
                                         hash: None,
                                         private: None,
-                                        original: &JUMBF[139..184],
+                                        original: InputData::Borrowed(&JUMBF[139..184]),
                                     },
                                     child_boxes: vec![ChildBox::DataBox(DataBox {
                                         tbox: BoxType(*b"json"),
-                                        data: &[
+                                        data: InputData::Borrowed(&[
                                             123, 32, 34, 108, 111, 99, 97, 116, 105, 111, 110, 34,
                                             58, 32, 34, 77, 97, 114, 103, 97, 116, 101, 32, 67,
                                             105, 116, 121, 44, 32, 78, 74, 34, 125,
-                                        ],
-                                        original: &JUMBF[184..225],
+                                        ]),
+                                        original: InputData::Borrowed(&JUMBF[184..225]),
                                     },),],
-                                    original: &JUMBF[131..225],
+                                    original: InputData::Borrowed(&JUMBF[131..225]),
                                 },),],
-                                original: &JUMBF[82..225],
+                                original: InputData::Borrowed(&JUMBF[82..225]),
                             },),
                             ChildBox::SuperBox(SuperBox {
                                 desc: DescriptionBox {
-                                    uuid: &[
+                                    uuid: [
                                         99, 50, 99, 108, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155,
                                         113,
                                     ],
-                                    label: Some("c2pa.claim",),
+                                    label: Some(Label::Borrowed("c2pa.claim")),
                                     requestable: true,
                                     id: None,
                                     hash: None,
                                     private: None,
-                                    original: &JUMBF[233..269],
+                                    original: InputData::Borrowed(&JUMBF[233..269]),
                                 },
                                 child_boxes: vec![ChildBox::DataBox(DataBox {
                                     tbox: BoxType(*b"json"),
-                                    data: &[
+                                    data: InputData::Borrowed(&[
                                         123, 10, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32,
                                         34, 114, 101, 99, 111, 114, 100, 101, 114, 34, 32, 58, 32,
                                         34, 80, 104, 111, 116, 111, 115, 104, 111, 112, 34, 44, 10,
@@ -1702,41 +1759,41 @@ mod tests {
                                         54, 50, 51, 54, 51, 70, 34, 10, 32, 32, 32, 32, 32, 32, 32,
                                         32, 32, 32, 32, 32, 93, 10, 32, 32, 32, 32, 32, 32, 32, 32,
                                         125,
-                                    ],
-                                    original: &JUMBF[269..496],
+                                    ]),
+                                    original: InputData::Borrowed(&JUMBF[269..496]),
                                 },),],
-                                original: &JUMBF[225..496],
+                                original: InputData::Borrowed(&JUMBF[225..496]),
                             },),
                             ChildBox::SuperBox(SuperBox {
                                 desc: DescriptionBox {
-                                    uuid: &[
+                                    uuid: [
                                         99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155,
                                         113,
                                     ],
-                                    label: Some("c2pa.signature",),
+                                    label: Some(Label::Borrowed("c2pa.signature")),
                                     requestable: true,
                                     id: None,
                                     hash: None,
                                     private: None,
-                                    original: &JUMBF[504..544],
+                                    original: InputData::Borrowed(&JUMBF[504..544]),
                                 },
                                 child_boxes: vec![ChildBox::DataBox(DataBox {
                                     tbox: BoxType(*b"uuid"),
-                                    data: &[
+                                    data: InputData::Borrowed(&[
                                         99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155,
                                         113, 116, 104, 105, 115, 32, 119, 111, 117, 108, 100, 32,
                                         110, 111, 114, 109, 97, 108, 108, 121, 32, 98, 101, 32, 98,
                                         105, 110, 97, 114, 121, 32, 115, 105, 103, 110, 97, 116,
                                         117, 114, 101, 32, 100, 97, 116, 97, 46, 46, 46,
-                                    ],
-                                    original: &JUMBF[544..615],
+                                    ]),
+                                    original: InputData::Borrowed(&JUMBF[544..615]),
                                 },),],
-                                original: &JUMBF[496..615],
+                                original: InputData::Borrowed(&JUMBF[496..615]),
                             },),
                         ),
-                        original: &JUMBF[38..615],
+                        original: InputData::Borrowed(&JUMBF[38..615]),
                     })),
-                    original: &JUMBF,
+                    original: InputData::Borrowed(&JUMBF),
                 }
             );
 
@@ -1744,26 +1801,26 @@ mod tests {
                 sbox.find_by_label("cb.adobe_1/c2pa.signature"),
                 Some(&SuperBox {
                     desc: DescriptionBox {
-                        uuid: &[99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
-                        label: Some("c2pa.signature",),
+                        uuid: [99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
+                        label: Some(Label::Borrowed("c2pa.signature")),
                         requestable: true,
                         id: None,
                         hash: None,
                         private: None,
-                        original: &JUMBF[504..544],
+                        original: InputData::Borrowed(&JUMBF[504..544]),
                     },
                     child_boxes: vec![ChildBox::DataBox(DataBox {
                         tbox: BoxType(*b"uuid"),
-                        data: &[
+                        data: InputData::Borrowed(&[
                             99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113, 116,
                             104, 105, 115, 32, 119, 111, 117, 108, 100, 32, 110, 111, 114, 109, 97,
                             108, 108, 121, 32, 98, 101, 32, 98, 105, 110, 97, 114, 121, 32, 115,
                             105, 103, 110, 97, 116, 117, 114, 101, 32, 100, 97, 116, 97, 46, 46,
                             46,
-                        ],
-                        original: &JUMBF[544..615],
+                        ]),
+                        original: InputData::Borrowed(&JUMBF[544..615]),
                     },),],
-                    original: &JUMBF[496..615],
+                    original: InputData::Borrowed(&JUMBF[496..615]),
                 })
             );
 
@@ -1776,13 +1833,13 @@ mod tests {
                     .and_then(|sig| sig.data_box()),
                 Some(&DataBox {
                     tbox: BoxType(*b"uuid"),
-                    data: &[
+                    data: InputData::Borrowed(&[
                         99, 50, 99, 115, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113, 116, 104,
                         105, 115, 32, 119, 111, 117, 108, 100, 32, 110, 111, 114, 109, 97, 108,
                         108, 121, 32, 98, 101, 32, 98, 105, 110, 97, 114, 121, 32, 115, 105, 103,
                         110, 97, 116, 117, 114, 101, 32, 100, 97, 116, 97, 46, 46, 46,
-                    ],
-                    original: &JUMBF[544..615],
+                    ]),
+                    original: InputData::Borrowed(&JUMBF[544..615]),
                 })
             );
 

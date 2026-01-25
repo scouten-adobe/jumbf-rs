@@ -37,4 +37,14 @@ pub enum Error {
     /// JUMBF data was incomplete.
     #[error("Incomplete data, needed {0} more bytes")]
     Incomplete(usize),
+
+    /// I/O error during reader operations.
+    #[error("I/O error: {0}")]
+    IoError(String),
+}
+
+impl From<std::io::Error> for Error {
+    fn from(e: std::io::Error) -> Self {
+        Self::IoError(e.to_string())
+    }
 }
