@@ -6,13 +6,17 @@ A [JUMBF (ISO/IEC 19566-5:2023)] parser and builder written in pure Rust.
 
 ## Parser
 
-The parser makes extensive use of zero-copy parsing.
-
 This crate is intentionally minimal in its understanding of box content. Only `jumb` (superbox) and `jumd` (description box) content are understood. The content of all other box types (including other types described in the JUMBF standard) is generally application-specific and thus the meaning of that content is left to the caller.
+
+The parser provides two APIs:
+
+### Slice-based parsing (zero-copy)
+
+When your JUMBF data is already in memory, use `from_slice()` for maximum performance with zero-copy parsing:
 
 ```rust
 use hex_literal::hex;
-use jumbf::parser::{DescriptionBox, SuperBox};
+use jumbf::parser::{DescriptionBox, InputData, Label, SuperBox};
 
 let jumbf = hex!(
     "0000002f" // box size
@@ -31,18 +35,37 @@ assert_eq!(
     sbox,
     SuperBox {
         desc: DescriptionBox {
-            uuid: &[0; 16],
-            label: Some("test.superbox"),
+            uuid: [0; 16],
+            label: Some(Label::Borrowed("test.superbox")),
             requestable: true,
             id: None,
             hash: None,
             private: None,
-            original: &jumbf[8..47],
+            original: InputData::Borrowed(&jumbf[8..47]),
         },
         child_boxes: vec!(),
-        original: &jumbf,
+        original: InputData::Borrowed(&jumbf),
     }
 );
+```
+
+### Reader-based parsing (streaming)
+
+When parsing from files or other I/O sources, use `from_reader()` to avoid loading the entire file into memory:
+
+```rust,ignore
+use std::{cell::RefCell, fs::File, io::BufReader, rc::Rc};
+
+use jumbf::parser::SuperBox;
+
+let file = File::open("src/tests/fixtures/C.c2pa").unwrap();
+let reader = Rc::new(RefCell::new(BufReader::new(file)));
+let sbox = SuperBox::from_reader(reader).unwrap();
+
+if let Some(child) = sbox.child_boxes.first() {
+    let _super_box = child.as_super_box().unwrap();
+    // ... dig deeper into nested boxes ...
+}
 ```
 
 ## Builder

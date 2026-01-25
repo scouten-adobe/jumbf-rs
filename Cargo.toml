@@ -30,5 +30,17 @@ name = "simple_data_box"
 harness = false
 name = "parse_c2pa"
 
+[[bench]]
+harness = false
+name = "simple_data_box_cursor"
+
+[[bench]]
+harness = false
+name = "parse_c2pa_cursor"
+
+[[bench]]
+harness = false
+name = "parse_c2pa_file"
+
 [package.metadata.cargo-udeps.ignore]
 development = ["criterion"]

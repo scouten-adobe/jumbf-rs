@@ -27,3 +27,22 @@ mod debug;
 pub mod parser;
 
 mod toggles;
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_readme_example() {
+        use std::{cell::RefCell, fs::File, io::BufReader, rc::Rc};
+
+        use crate::parser::SuperBox;
+
+        let file = File::open("src/tests/fixtures/C.c2pa").unwrap();
+        let reader = Rc::new(RefCell::new(BufReader::new(file)));
+        let sbox = SuperBox::from_reader(reader).unwrap();
+
+        if let Some(child) = sbox.child_boxes.first() {
+            let _super_box = child.as_super_box().unwrap();
+            // ... dig deeper into nested boxes ...
+        }
+    }
+}

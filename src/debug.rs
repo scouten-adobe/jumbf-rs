@@ -30,18 +30,6 @@ impl<'a> Debug for DebugByteSlice<'a> {
     }
 }
 
-pub(crate) struct DebugOption32ByteSlice<'a>(pub(crate) &'a Option<&'a [u8; 32]>);
-
-impl<'a> Debug for DebugOption32ByteSlice<'a> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        if let Some(s) = self.0 {
-            write!(f, "Some({:#?})", &DebugByteSlice(*s as &[u8]))
-        } else {
-            write!(f, "None")
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     #![allow(clippy::expect_used)]
@@ -71,17 +59,5 @@ mod tests {
         format!("{s:#?}"),
         "21 bytes starting with [00, 01, 02, 03, 04, 05, 06, 07, 08, 09, 0a, 0b, 0c, 0d, 0e, 0f, 10, 11, 12, 13]"
     );
-    }
-
-    #[test]
-    fn debug_option_32_byte_slice() {
-        let h = hex!("54686973206973206120626f67757320686173682e2e2e2e2e2e2e2e2e2e2e2e");
-        let h = Some(&h);
-
-        let s = DebugOption32ByteSlice(&h);
-        assert_eq!(format!("{s:#?}"), "Some(32 bytes starting with [54, 68, 69, 73, 20, 69, 73, 20, 61, 20, 62, 6f, 67, 75, 73, 20, 68, 61, 73, 68])");
-
-        let s: DebugOption32ByteSlice = DebugOption32ByteSlice(&None);
-        assert_eq!(format!("{s:#?}"), "None");
     }
 }
