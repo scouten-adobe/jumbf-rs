@@ -34,8 +34,9 @@ use crate::{
 /// data type.
 ///
 /// The generic parameter `R` represents the reader type for lazy-loaded data.
-/// Use `DataBox<'a>` (or `DataBox<'a, NoReader>`) for slice-based parsing (zero-copy) or
-/// `DataBox<'static, R>` where `R: Read + Seek` for reader-based parsing.
+/// Use `DataBox<'a>` (or `DataBox<'a, NoReader>`) for slice-based parsing
+/// (zero-copy) or `DataBox<'static, R>` where `R: Read + Seek` for reader-based
+/// parsing.
 #[derive(Clone, Eq, PartialEq)]
 pub struct DataBox<'a, R = NoReader> {
     /// Box type.
@@ -156,14 +157,16 @@ impl<'a> DataBox<'a, NoReader> {
                 InputData::Borrowed(&[])
             }
         })?;
-        
+
         let pos = cursor.position() as usize;
-        
+
         // Check if the box claimed more data than available.
         if pos > original.len() {
-            return Err(Error::IoError("Box size exceeds available data".to_string()));
+            return Err(Error::IoError(
+                "Box size exceeds available data".to_string(),
+            ));
         }
-        
+
         Ok((data_box, &original[pos..]))
     }
 
@@ -233,7 +236,8 @@ impl<R: Read + Seek> DataBox<'static, R> {
     /// Parse a JUMBF box from a reader at its current position.
     ///
     /// The reader position will be advanced to the end of the box upon success.
-    /// Data is stored as lazy references and only read when `.to_vec()` is called.
+    /// Data is stored as lazy references and only read when `.to_vec()` is
+    /// called.
     pub fn from_reader(reader: Rc<RefCell<R>>) -> Result<Self, Error> {
         use crate::parser::InputSlice;
 

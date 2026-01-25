@@ -26,10 +26,10 @@ use crate::parser::{InputSlice, NoReader};
 /// ## Borrowed data (zero-copy)
 ///
 /// ```
-/// use jumbf::parser::InputData;
+/// use jumbf::parser::{InputData, NoReader};
 ///
 /// let data = vec![1, 2, 3, 4, 5];
-/// let input = InputData::Borrowed(&data[1..4]);
+/// let input = InputData::<NoReader>::Borrowed(&data[1..4]);
 ///
 /// assert_eq!(input.len(), 3);
 /// assert_eq!(input.as_slice().unwrap(), &[2, 3, 4]);
@@ -39,9 +39,8 @@ use crate::parser::{InputSlice, NoReader};
 /// ## Lazy data (from reader)
 ///
 /// ```
-/// use std::io::Cursor;
-/// use std::rc::Rc;
-/// use std::cell::RefCell;
+/// use std::{cell::RefCell, io::Cursor, rc::Rc};
+///
 /// use jumbf::parser::{InputData, InputSlice};
 ///
 /// let data = vec![1, 2, 3, 4, 5];
@@ -131,7 +130,7 @@ impl<'a, R> std::fmt::Debug for InputData<'a, R> {
                     .iter()
                     .map(|b| format!("{:02x}", b))
                     .collect();
-                
+
                 write!(
                     f,
                     "InputData::Borrowed({} bytes: [{}{}])",
@@ -149,9 +148,7 @@ impl<'a, R> PartialEq for InputData<'a, R> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Borrowed(a), Self::Borrowed(b)) => a == b,
-            (Self::Lazy(a), Self::Lazy(b)) => {
-                a.offset == b.offset && a.len == b.len
-            }
+            (Self::Lazy(a), Self::Lazy(b)) => a.offset == b.offset && a.len == b.len,
             _ => false,
         }
     }
@@ -174,8 +171,9 @@ mod tests {
     #![allow(clippy::panic)]
     #![allow(clippy::unwrap_used)]
 
-    use super::*;
     use std::{cell::RefCell, io::Cursor, rc::Rc};
+
+    use super::*;
 
     #[test]
     fn borrowed_data() {

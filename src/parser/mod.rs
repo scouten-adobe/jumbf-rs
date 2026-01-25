@@ -49,6 +49,7 @@
 //!
 //! ```rust,no_run
 //! use std::{cell::RefCell, fs::File, io::BufReader, rc::Rc};
+//!
 //! use jumbf::parser::SuperBox;
 //!
 //! let file = File::open("manifest.jumbf").unwrap();

@@ -53,18 +53,18 @@ assert_eq!(
 
 When parsing from files or other I/O sources, use `from_reader()` to avoid loading the entire file into memory:
 
-```rust
+```rust,ignore
 use std::{cell::RefCell, fs::File, io::BufReader, rc::Rc};
+
 use jumbf::parser::SuperBox;
 
-let file = File::open("manifest.jumbf").unwrap();
+let file = File::open("src/tests/fixtures/C.c2pa").unwrap();
 let reader = Rc::new(RefCell::new(BufReader::new(file)));
 let sbox = SuperBox::from_reader(reader).unwrap();
 
-// Box data is lazily loaded only when accessed via to_vec()
 if let Some(child) = sbox.child_boxes.first() {
-    let data = child.as_data_box().unwrap().data.to_vec().unwrap();
-    // ... use data ...
+    let _super_box = child.as_super_box().unwrap();
+    // ... dig deeper into nested boxes ...
 }
 ```
 

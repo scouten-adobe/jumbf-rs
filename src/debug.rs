@@ -30,7 +30,6 @@ impl<'a> Debug for DebugByteSlice<'a> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     #![allow(clippy::expect_used)]
@@ -61,5 +60,4 @@ mod tests {
         "21 bytes starting with [00, 01, 02, 03, 04, 05, 06, 07, 08, 09, 0a, 0b, 0c, 0d, 0e, 0f, 10, 11, 12, 13]"
     );
     }
-
 }

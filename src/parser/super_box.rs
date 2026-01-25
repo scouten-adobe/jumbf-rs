@@ -218,18 +218,21 @@ impl<'a, R: Debug> Debug for SuperBox<'a, R> {
 impl<R: Read + Seek> SuperBox<'static, R> {
     /// Parse a JUMBF superbox from a reader at its current position.
     ///
-    /// The reader position will be advanced to the end of the superbox upon success.
-    /// Data is stored as lazy references and only read when `.to_vec()` is called.
-    /// Children are parsed recursively without depth limit.
+    /// The reader position will be advanced to the end of the superbox upon
+    /// success. Data is stored as lazy references and only read when
+    /// `.to_vec()` is called. Children are parsed recursively without depth
+    /// limit.
     pub fn from_reader(reader: Rc<RefCell<R>>) -> Result<Self, Error> {
         Self::from_reader_with_depth_limit(reader, usize::MAX)
     }
 
-    /// Parse a JUMBF superbox from a reader at its current position with a depth limit.
+    /// Parse a JUMBF superbox from a reader at its current position with a
+    /// depth limit.
     ///
-    /// Children of this superbox which are also superboxes will be parsed recursively,
-    /// to a limit of `depth_limit` nested boxes. If `depth_limit` is 0, any child
-    /// superboxes that are found will be returned as plain [`DataBox`] structs instead.
+    /// Children of this superbox which are also superboxes will be parsed
+    /// recursively, to a limit of `depth_limit` nested boxes. If
+    /// `depth_limit` is 0, any child superboxes that are found will be
+    /// returned as plain [`DataBox`] structs instead.
     pub fn from_reader_with_depth_limit(
         reader: Rc<RefCell<R>>,
         depth_limit: usize,
@@ -259,7 +262,9 @@ impl<R: Read + Seek> SuperBox<'static, R> {
         };
 
         // Seek to the start of the superbox's data.
-        reader.borrow_mut().seek(SeekFrom::Start(data_start_offset))?;
+        reader
+            .borrow_mut()
+            .seek(SeekFrom::Start(data_start_offset))?;
 
         // Read description box from the superbox's data.
         let desc = DescriptionBox::from_reader(Rc::clone(&reader))?;
@@ -1028,7 +1033,9 @@ mod tests {
                 child_boxes: vec![ChildBox::SuperBox(SuperBox {
                     desc: DescriptionBox {
                         uuid: hex!("63 32 6d 61 00 11 00 10 80 00 00 aa 00 38 9b 71"),
-                        label: Some(Label::Borrowed("contentauth:urn:uuid:021b555e-5e02-4074-b444-43d7919d89b9")),
+                        label: Some(Label::Borrowed(
+                            "contentauth:urn:uuid:021b555e-5e02-4074-b444-43d7919d89b9"
+                        )),
                         requestable: true,
                         id: None,
                         hash: None,
@@ -1078,7 +1085,9 @@ mod tests {
                                         uuid: hex!(
                                             "6a 73 6f 6e 00 11 00 10 80 00 00 aa 00 38 9b 71"
                                         ),
-                                        label: Some(Label::Borrowed("stds.schema-org.CreativeWork")),
+                                        label: Some(Label::Borrowed(
+                                            "stds.schema-org.CreativeWork"
+                                        )),
                                         requestable: true,
                                         id: None,
                                         hash: None,
@@ -1449,9 +1458,7 @@ mod tests {
                     },
                     child_boxes: vec!(ChildBox::SuperBox(SuperBox {
                         desc: DescriptionBox {
-                            uuid: [
-                                99, 50, 109, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,
-                            ],
+                            uuid: [99, 50, 109, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
                             label: Some(Label::Borrowed("cb.adobe_1")),
                             requestable: true,
                             id: None,
@@ -1506,9 +1513,7 @@ mod tests {
                     },
                     child_boxes: vec!(ChildBox::SuperBox(SuperBox {
                         desc: DescriptionBox {
-                            uuid: [
-                                99, 50, 109, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,
-                            ],
+                            uuid: [99, 50, 109, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
                             label: Some(Label::Borrowed("cb.adobe_1")),
                             requestable: true,
                             id: None,
@@ -1676,9 +1681,7 @@ mod tests {
                     },
                     child_boxes: vec!(ChildBox::SuperBox(SuperBox {
                         desc: DescriptionBox {
-                            uuid: [
-                                99, 50, 109, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,
-                            ],
+                            uuid: [99, 50, 109, 97, 0, 17, 0, 16, 128, 0, 0, 170, 0, 56, 155, 113,],
                             label: Some(Label::Borrowed("cb.adobe_1")),
                             requestable: true,
                             id: None,

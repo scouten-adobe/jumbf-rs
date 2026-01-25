@@ -224,8 +224,9 @@ impl<'a, R> Debug for DescriptionBox<'a, R> {
 impl<R: Read + Seek> DescriptionBox<'static, R> {
     /// Parse a JUMBF description box from a reader at its current position.
     ///
-    /// The reader position will be advanced to the end of the description box upon success.
-    /// Small fields (UUID, label, hash) are copied into owned data structures.
+    /// The reader position will be advanced to the end of the description box
+    /// upon success. Small fields (UUID, label, hash) are copied into owned
+    /// data structures.
     pub fn from_reader(reader: Rc<RefCell<R>>) -> Result<Self, Error> {
         use crate::toggles;
 
@@ -298,7 +299,8 @@ impl<R: Read + Seek> DescriptionBox<'static, R> {
 
         // Parse private box if present.
         let private = if toggles & toggles::HAS_PRIVATE_BOX != 0 {
-            // The private box is in the remaining data, but we need to parse it from the reader.
+            // The private box is in the remaining data, but we need to parse it from the
+            // reader.
             let private_box = DataBox::from_reader(Rc::clone(&reader))?;
             Some(private_box)
         } else {

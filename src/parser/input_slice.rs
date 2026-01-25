@@ -29,19 +29,14 @@ use std::{
 /// # Example
 ///
 /// ```
-/// use std::io::Cursor;
-/// use std::rc::Rc;
-/// use std::cell::RefCell;
+/// use std::{cell::RefCell, io::Cursor, rc::Rc};
+///
 /// use jumbf::parser::InputSlice;
 ///
 /// let data = vec![0u8, 1, 2, 3, 4, 5];
 /// let reader = Rc::new(RefCell::new(Cursor::new(data)));
 ///
-/// let slice = InputSlice {
-///     reader: Rc::clone(&reader),
-///     offset: 2,
-///     len: 3,
-/// };
+/// let slice = InputSlice::new(Rc::clone(&reader), 2, 3);
 ///
 /// assert_eq!(slice.len(), 3);
 /// assert_eq!(slice.to_vec().unwrap(), vec![2, 3, 4]);
@@ -144,8 +139,9 @@ mod tests {
     #![allow(clippy::panic)]
     #![allow(clippy::unwrap_used)]
 
-    use super::*;
     use std::io::Cursor;
+
+    use super::*;
 
     #[test]
     fn to_vec() {
