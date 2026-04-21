@@ -387,7 +387,7 @@ jobs:
         run: cargo codspeed build -p jumbf
 
       - name: Run the benchmarks
-        uses: CodSpeedHQ/action@v4
+        uses: CodSpeedHQ/action@v4.13.1
         with:
           mode: instrumentation
           run: cargo codspeed run
