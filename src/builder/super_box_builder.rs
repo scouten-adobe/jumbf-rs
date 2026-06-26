@@ -58,14 +58,14 @@ use crate::{
 /// sbox.write_jumbf(&mut jumbf)?;
 ///
 /// let expected_jumbf = hex!(
-///     "0000004a" // box size
+///     "00000032" // box size
 ///     "6a756d62" // box type = 'jumb'
 ///         "00000019" // box size
 ///         "6a756d64" // box type = 'jumd'
 ///         "00000000000000000000000000000000" // UUID
 ///         "00" // toggles
 ///         // ---
-///         "00000029" // box size
+///         "00000011" // box size
 ///         "61626364" // box type = 'abcd'
 ///         "736f6d652064617461" // payload ("some data")
 ///     );
